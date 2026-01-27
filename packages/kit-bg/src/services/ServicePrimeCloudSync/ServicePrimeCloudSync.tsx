@@ -51,6 +51,9 @@ import type {
   IPrimeLockChangedInfo,
 } from '@onekeyhq/shared/types/socket';
 import type { ICloudSyncCustomToken } from '@onekeyhq/shared/types/token';
+import { ECloudSyncMode } from '@onekeyhq/shared/types/keylessCloudSync';
+
+import type { IKeylessCloudSyncCredential } from '@onekeyhq/shared/types/keylessCloudSync';
 
 import localDb from '../../dbs/local/localDb';
 import { ELocalDBStoreNames } from '../../dbs/local/localDBStoreNames';
@@ -81,6 +84,11 @@ import { CloudSyncFlowManagerLock } from './CloudSyncFlowManager/CloudSyncFlowMa
 import { CloudSyncFlowManagerMarketWatchList } from './CloudSyncFlowManager/CloudSyncFlowManagerMarketWatchList';
 import { CloudSyncFlowManagerWallet } from './CloudSyncFlowManager/CloudSyncFlowManagerWallet';
 import cloudSyncItemBuilder from './cloudSyncItemBuilder';
+import {
+  decryptWithKeylessKey,
+  deriveKeylessCredential,
+  encryptWithKeylessKey,
+} from './keylessCloudSyncUtils';
 
 import type { RealmSchemaCloudSyncItem } from '../../dbs/local/realm/schemas/RealmSchemaCloudSyncItem';
 import type { IPrimeCloudSyncPersistAtomData } from '../../states/jotai/atoms';
@@ -125,6 +133,438 @@ class ServicePrimeCloudSync extends ServiceBase {
       backgroundApi: this.backgroundApi,
     }),
   };
+
+  // ============ Keyless Cloud Sync Methods ============
+
+  /**
+   * Keyless credential cache (cleared on password change or wallet removal)
+   */
+  private keylessCredentialCache: IKeylessCloudSyncCredential | null = null;
+
+  /**
+   * Get the unique Keyless wallet in the app
+   * @returns Keyless wallet or null if not exists
+   */
+  async getKeylessWallet(): Promise<IDBWallet | null> {
+    const wallet = await this.backgroundApi.serviceAccount.getKeylessWallet();
+    return wallet ?? null;
+  }
+
+  /**
+   * Get or derive Keyless sync credentials
+   * @returns Keyless credentials or null if conditions not met
+   */
+  async getKeylessCredential(): Promise<IKeylessCloudSyncCredential | null> {
+    // Check cache first
+    if (this.keylessCredentialCache) {
+      return this.keylessCredentialCache;
+    }
+
+    const keylessWallet = await this.getKeylessWallet();
+    if (!keylessWallet) {
+      return null;
+    }
+
+    const password =
+      await this.backgroundApi.servicePassword.getCachedPassword();
+    if (!password) {
+      return null;
+    }
+
+    const credential = await localDb.getCredentialSafe(keylessWallet.id);
+    if (!credential?.credential) {
+      return null;
+    }
+
+    try {
+      const keylessCredential = await deriveKeylessCredential({
+        hdCredential: credential.credential,
+        password,
+        keylessWalletId: keylessWallet.id,
+      });
+
+      this.keylessCredentialCache = keylessCredential;
+      return keylessCredential;
+    } catch (error) {
+      console.error(
+        '[PrimeCloudSync] Failed to derive keyless credential:',
+        error,
+      );
+      return null;
+    }
+  }
+
+  /**
+   * Clear Keyless credential cache
+   * Called when: password changed, keyless wallet removed, or user logged out
+   */
+  clearKeylessCredentialCache(): void {
+    this.keylessCredentialCache = null;
+  }
+
+  /**
+   * Get active sync mode based on configuration and wallet state
+   *
+   * Rules:
+   * 1. If OneKey Cloud sync is enabled → primary mode is OneKey ID (use `data` field)
+   * 2. Else if Keyless wallet exists → primary mode is Keyless (use `keylessData` field)
+   * 3. Else → no cloud sync, local storage only
+   *
+   * @returns Active sync mode
+   */
+  @backgroundMethod()
+  async getActiveSyncMode(): Promise<ECloudSyncMode> {
+    // Check OneKey Cloud sync switch
+    const primeCloudSyncConfig = await primeCloudSyncPersistAtom.get();
+    if (primeCloudSyncConfig.isCloudSyncEnabled) {
+      // Also need to verify Prime login and subscription
+      try {
+        const isPrimeLoggedIn =
+          await this.backgroundApi.servicePrime.isLoggedIn();
+        const isPrimeSubscriptionActive =
+          await this.backgroundApi.servicePrime.isPrimeSubscriptionActive();
+        if (isPrimeLoggedIn && isPrimeSubscriptionActive) {
+          return ECloudSyncMode.OnekeyId;
+        }
+      } catch (error) {
+        errorUtils.autoPrintErrorIgnore(error);
+      }
+    }
+
+    // Check Keyless wallet existence
+    const keylessWallet = await this.getKeylessWallet();
+    if (keylessWallet) {
+      return ECloudSyncMode.Keyless;
+    }
+
+    // No cloud sync
+    return ECloudSyncMode.None;
+  }
+
+  /**
+   * Determine which data source is the latest for a sync item
+   *
+   * Rules:
+   * 1. Both dataTime and keylessDataTime exist → use the later one
+   * 2. Only one exists → use the existing one
+   * 3. Same timestamp → use current primary mode
+   *
+   * @param item Local sync item
+   * @param primaryMode Current primary mode
+   * @returns 'data' | 'keylessData' | null (if both missing)
+   */
+  determineLatestDataSource(
+    item: IDBCloudSyncItem,
+    primaryMode: ECloudSyncMode,
+  ): 'data' | 'keylessData' | null {
+    const hasData = !!item.data;
+    const hasKeylessData = !!item.keylessData;
+    const dataTime = item.dataTime ?? 0;
+    const keylessDataTime = item.keylessDataTime ?? 0;
+
+    // Neither exists
+    if (!hasData && !hasKeylessData) {
+      return null;
+    }
+
+    // Only one exists
+    if (hasData && !hasKeylessData) {
+      return 'data';
+    }
+    if (!hasData && hasKeylessData) {
+      return 'keylessData';
+    }
+
+    // Both exist, compare timestamps
+    if (dataTime > keylessDataTime) {
+      return 'data';
+    }
+    if (keylessDataTime > dataTime) {
+      return 'keylessData';
+    }
+
+    // Same timestamp, use primary mode
+    return primaryMode === ECloudSyncMode.Keyless ? 'keylessData' : 'data';
+  }
+
+  /**
+   * Decrypt sync item data based on source
+   *
+   * @param item Sync item to decrypt
+   * @param source Data source ('data' or 'keylessData')
+   * @param syncCredential OneKey ID sync credential (for 'data')
+   * @param keylessCredential Keyless credential (for 'keylessData')
+   * @returns Decrypted raw data or null if failed
+   */
+  async decryptSyncItemBySource({
+    item,
+    source,
+    syncCredential,
+    keylessCredential,
+  }: {
+    item: IDBCloudSyncItem;
+    source: 'data' | 'keylessData';
+    syncCredential: ICloudSyncCredential | undefined;
+    keylessCredential: IKeylessCloudSyncCredential | null;
+  }): Promise<string | null> {
+    try {
+      if (source === 'data' && item.data && syncCredential) {
+        const decrypted = await cloudSyncItemBuilder.decryptSyncItem({
+          item,
+          syncCredential,
+        });
+        // rawData is set on the dbItem during decryption
+        return decrypted.dbItem?.rawData ?? null;
+      }
+
+      if (source === 'keylessData' && item.keylessData && keylessCredential) {
+        return await decryptWithKeylessKey({
+          encryptedData: item.keylessData,
+          encryptionKey: keylessCredential.encryptionKey,
+        });
+      }
+
+      return null;
+    } catch (error) {
+      console.error(`[PrimeCloudSync] Failed to decrypt ${source}:`, error);
+      return null;
+    }
+  }
+
+  /**
+   * Convert data between OneKey ID encryption and Keyless encryption
+   *
+   * This method handles the conversion when switching between sync modes:
+   * - When switching to Keyless: decrypt `data` and generate `keylessData`
+   * - When switching to OneKey ID: decrypt `keylessData` and generate `data`
+   *
+   * @param items Items to convert
+   * @param targetMode Target encryption mode
+   * @param syncCredential OneKey ID credential
+   * @param keylessCredential Keyless credential
+   * @returns Converted items
+   */
+  async convertSyncItemsForModeSwitch({
+    items,
+    targetMode,
+    syncCredential,
+    keylessCredential,
+  }: {
+    items: IDBCloudSyncItem[];
+    targetMode: ECloudSyncMode;
+    syncCredential: ICloudSyncCredential | undefined;
+    keylessCredential: IKeylessCloudSyncCredential | null;
+  }): Promise<IDBCloudSyncItem[]> {
+    if (
+      targetMode === ECloudSyncMode.None ||
+      (!syncCredential && !keylessCredential)
+    ) {
+      return items;
+    }
+
+    const convertedItems: IDBCloudSyncItem[] = [];
+
+    for (const item of items) {
+      try {
+        // Lock data type is not included in Keyless sync
+        if (item.dataType === EPrimeCloudSyncDataType.Lock) {
+          convertedItems.push(item);
+          continue;
+        }
+
+        // Determine latest data source
+        const latestSource = this.determineLatestDataSource(item, targetMode);
+        if (!latestSource) {
+          // No data to convert, try to use rawData if available
+          if (item.rawData) {
+            const convertedItem = await this.generateMissingEncryptedData({
+              item,
+              rawData: item.rawData,
+              targetMode,
+              syncCredential,
+              keylessCredential,
+            });
+            convertedItems.push(convertedItem);
+          } else {
+            convertedItems.push(item);
+          }
+          continue;
+        }
+
+        // Decrypt latest data
+        let rawData = await this.decryptSyncItemBySource({
+          item,
+          source: latestSource,
+          syncCredential,
+          keylessCredential,
+        });
+
+        // Fallback: try the other source if decryption failed
+        if (!rawData) {
+          const fallbackSource =
+            latestSource === 'data' ? 'keylessData' : 'data';
+          rawData = await this.decryptSyncItemBySource({
+            item,
+            source: fallbackSource,
+            syncCredential,
+            keylessCredential,
+          });
+        }
+
+        // Fallback: use rawData if available
+        if (!rawData && item.rawData) {
+          rawData = item.rawData;
+        }
+
+        if (!rawData) {
+          console.warn(
+            `[PrimeCloudSync] Cannot decrypt item ${item.id}, skipping conversion`,
+          );
+          convertedItems.push(item);
+          continue;
+        }
+
+        // Generate the target encrypted data
+        const convertedItem = await this.generateMissingEncryptedData({
+          item,
+          rawData,
+          targetMode,
+          syncCredential,
+          keylessCredential,
+        });
+
+        convertedItems.push(convertedItem);
+      } catch (error) {
+        console.error(
+          `[PrimeCloudSync] Failed to convert item ${item.id}:`,
+          error,
+        );
+        convertedItems.push(item);
+      }
+    }
+
+    return convertedItems;
+  }
+
+  /**
+   * Generate missing encrypted data for a sync item
+   *
+   * @param item Original item
+   * @param rawData Decrypted raw data
+   * @param targetMode Target mode to generate data for
+   * @param syncCredential OneKey ID credential
+   * @param keylessCredential Keyless credential
+   * @returns Updated item with generated encrypted data
+   */
+  async generateMissingEncryptedData({
+    item,
+    rawData,
+    targetMode,
+    // syncCredential is reserved for future OneKey ID encryption generation
+    // Currently OneKey ID encryption is handled by existing flow in buildSyncItem
+    syncCredential: _syncCredential,
+    keylessCredential,
+  }: {
+    item: IDBCloudSyncItem;
+    rawData: string;
+    targetMode: ECloudSyncMode;
+    syncCredential: ICloudSyncCredential | undefined;
+    keylessCredential: IKeylessCloudSyncCredential | null;
+  }): Promise<IDBCloudSyncItem> {
+    void _syncCredential; // Reserved for future use
+    const updatedItem: IDBCloudSyncItem = { ...item, rawData };
+    const now = await this.timeNow();
+
+    // Generate Keyless encrypted data if targeting Keyless mode
+    if (
+      (targetMode === ECloudSyncMode.Keyless ||
+        targetMode === ECloudSyncMode.OnekeyId) &&
+      keylessCredential &&
+      !item.keylessData
+    ) {
+      try {
+        updatedItem.keylessData = await encryptWithKeylessKey({
+          rawData,
+          encryptionKey: keylessCredential.encryptionKey,
+        });
+        // Use source timestamp to indicate same version, avoid "pseudo-latest"
+        updatedItem.keylessDataTime = item.dataTime ?? now;
+      } catch (error) {
+        console.error(
+          '[PrimeCloudSync] Failed to generate keylessData:',
+          error,
+        );
+      }
+    }
+
+    // Generate OneKey ID encrypted data if targeting OneKey ID mode
+    // Note: OneKey ID encryption is handled by existing flow in buildSyncItem
+    // Here we just ensure rawData is set for later encryption
+
+    return updatedItem;
+  }
+
+  /**
+   * Handle mode switch: convert existing data to match new mode
+   *
+   * This is called when:
+   * - OneKey Cloud sync is enabled/disabled
+   * - Keyless wallet is created/removed
+   * - Mode is detected to have changed
+   *
+   * @param newMode New active mode
+   */
+  async handleModeSwitchConversion(newMode: ECloudSyncMode): Promise<void> {
+    if (newMode === ECloudSyncMode.None) {
+      return;
+    }
+
+    const syncCredential = await this.getSyncCredentialSafe();
+    const keylessCredential = await this.getKeylessCredential();
+
+    // Need at least one credential to perform conversion
+    if (!syncCredential && !keylessCredential) {
+      return;
+    }
+
+    const { items } = await this.getAllLocalSyncItems();
+    const itemsToConvert = items.filter(
+      (item) => item.dataType !== EPrimeCloudSyncDataType.Lock,
+    );
+
+    if (itemsToConvert.length === 0) {
+      return;
+    }
+
+    const convertedItems = await this.convertSyncItemsForModeSwitch({
+      items: itemsToConvert,
+      targetMode: newMode,
+      syncCredential,
+      keylessCredential,
+    });
+
+    // Save converted items
+    const itemsNeedUpdate = convertedItems.filter((converted, index) => {
+      const original = itemsToConvert[index];
+      // Check if keylessData was generated
+      return (
+        converted.keylessData !== original.keylessData ||
+        converted.rawData !== original.rawData
+      );
+    });
+
+    if (itemsNeedUpdate.length > 0) {
+      await localDb.addAndUpdateSyncItems({
+        items: itemsNeedUpdate,
+        skipUploadToServer: true, // Will upload in the sync flow
+      });
+      console.log(
+        `[PrimeCloudSync] Mode switch conversion completed for ${itemsNeedUpdate.length} items`,
+      );
+    }
+  }
+
+  // ============ End of Keyless Cloud Sync Methods ============
 
   getSyncManager(dataType: EPrimeCloudSyncDataType) {
     switch (dataType) {
