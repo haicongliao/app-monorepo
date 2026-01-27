@@ -90,6 +90,49 @@ export type ICloudSyncServerItemByDownloaded = {
   /** keylessData update time */
   keylessDataTimestamp?: number;
 };
+
+export type ICloudSyncCheckServerStatusPostData = {
+  localData: {
+    key: string;
+    dataTimestamp: number | undefined;
+    dataType: EPrimeCloudSyncDataType;
+  }[];
+  onlyCheckLocalDataType: EPrimeCloudSyncDataType[];
+};
+
+export type ICloudSyncCheckServerStatusResult = {
+  deleted: string[];
+  diff: ICloudSyncServerItem[];
+  updated: ICloudSyncServerItem[];
+  obsoleted: string[];
+  pwdHash: string;
+  serverTime: number;
+};
+
+export type ICloudSyncDownloadPostData = {
+  start?: number;
+  limit?: number;
+  includeDeleted?: boolean;
+};
+
+export type ICloudSyncDownloadResult = {
+  nonce: number; // TODO add nonce here
+  serverData: ICloudSyncServerItemByDownloaded[];
+  pwdHash: string;
+};
+
+export type ICloudSyncUploadPostData = {
+  localData: ICloudSyncServerItem[];
+  pwdHash: string;
+  lock?: ICloudSyncServerItem | null | undefined;
+};
+
+export type ICloudSyncUploadResult = {
+  nonce: number;
+  created: number;
+  updated: number;
+};
+
 export type ICloudSyncCredential = {
   primeAccountSalt: string;
   securityPasswordR1: string;
