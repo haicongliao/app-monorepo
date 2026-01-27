@@ -227,18 +227,7 @@ class ServicePrimeCloudSync extends ServiceBase {
     // Check OneKey Cloud sync switch
     const primeCloudSyncConfig = await primeCloudSyncPersistAtom.get();
     if (primeCloudSyncConfig.isCloudSyncEnabled) {
-      // Also need to verify Prime login and subscription
-      try {
-        const isPrimeLoggedIn =
-          await this.backgroundApi.servicePrime.isLoggedIn();
-        const isPrimeSubscriptionActive =
-          await this.backgroundApi.servicePrime.isPrimeSubscriptionActive();
-        if (isPrimeLoggedIn && isPrimeSubscriptionActive) {
-          return ECloudSyncMode.OnekeyId;
-        }
-      } catch (error) {
-        errorUtils.autoPrintErrorIgnore(error);
-      }
+      return ECloudSyncMode.OnekeyId;
     }
 
     // Check Keyless wallet existence
@@ -1592,12 +1581,17 @@ class ServicePrimeCloudSync extends ServiceBase {
     noDebounceUpload,
   }: IStartServerSyncFlowParams = {}) {
     try {
-      if (!(await this.isCloudSyncIsAvailable())) {
-        return;
+      const syncMode = await this.getActiveSyncMode();
+      if (syncMode === ECloudSyncMode.Keyless) {
+        // do nothing
+      } else {
+        if (!(await this.isCloudSyncIsAvailable())) {
+          return;
+        }
+        await this.ensureCloudSyncIsAvailable({
+          callerName,
+        });
       }
-      await this.ensureCloudSyncIsAvailable({
-        callerName,
-      });
 
       // when data is written, because the cached password is missing to encrypt, so data is undefined
       await this.fillingSyncItemsMissingDataFromRawData({
