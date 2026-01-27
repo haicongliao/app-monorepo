@@ -1771,7 +1771,6 @@ export abstract class LocalDbBase extends LocalDbBaseContainer {
       updateItem.dataTime &&
       updateItem.dataTime >= item.dataTime;
 
-    const newDataTime = updateItem.dataTime ?? item.dataTime;
     if (isNil(updateItem.dataTime)) {
       shouldUpdate = false;
 
@@ -1800,8 +1799,13 @@ export abstract class LocalDbBase extends LocalDbBaseContainer {
       dataType: item.dataType,
       // update fields
       rawData: updateItem.rawData,
+
       data: updateItem.data,
-      dataTime: newDataTime,
+      dataTime: updateItem.dataTime ?? item.dataTime,
+
+      keylessData: updateItem.keylessData,
+      keylessDataTime: updateItem.keylessDataTime ?? item.keylessDataTime,
+
       isDeleted: updateItem.isDeleted,
       localSceneUpdated: updateItem.localSceneUpdated,
       serverUploaded: updateItem.serverUploaded,

@@ -15,6 +15,7 @@ import type { IAvatarInfo } from '../../src/utils/emojiUtils';
 import type { IDBCustomRpc } from '../customRpc';
 import type { IMarketWatchListItemV2 } from '../market';
 import type { ICloudSyncCustomToken } from '../token';
+import type { IKeylessCloudSyncCredential } from '../keylessCloudSync';
 
 // for user to manual resolve diff items
 export type ICloudSyncServerDiffItem = {
@@ -137,6 +138,7 @@ export type ICloudSyncCredential = {
   primeAccountSalt: string;
   securityPasswordR1: string;
   masterPasswordUUID: string; // pwdHash
+  keylessCredential?: IKeylessCloudSyncCredential;
 };
 export type ICloudSyncCredentialForLock = Omit<
   ICloudSyncCredential,

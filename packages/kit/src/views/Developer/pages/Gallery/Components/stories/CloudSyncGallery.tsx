@@ -104,13 +104,12 @@ export function CloudSyncApiTests() {
         <XStack gap="$2" flexWrap="wrap">
           <Button
             onPress={() =>
-              handleApiCall(
-                () =>
-                  backgroundApiProxy.servicePrimeCloudSync.startServerSyncFlow(
-                    buildParams(),
-                  ),
-                'startServerSyncFlow',
-              )
+              handleApiCall(async () => {
+                await backgroundApiProxy.servicePassword.promptPasswordVerify();
+                await backgroundApiProxy.servicePrimeCloudSync.startServerSyncFlow(
+                  buildParams(),
+                );
+              }, 'startServerSyncFlow')
             }
             variant="primary"
           >

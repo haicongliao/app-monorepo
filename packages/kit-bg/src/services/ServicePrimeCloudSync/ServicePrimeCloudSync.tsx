@@ -254,7 +254,8 @@ class ServicePrimeCloudSync extends ServiceBase {
       return null;
     }
 
-    const keylessCredential = await this.getKeylessCredential();
+    const syncCredential = await this.getSyncCredentialSafe();
+    const keylessCredential = syncCredential?.keylessCredential;
     if (!keylessCredential) {
       return null;
     }
@@ -411,7 +412,7 @@ class ServicePrimeCloudSync extends ServiceBase {
     item: IDBCloudSyncItem;
     source: 'data' | 'keylessData';
     syncCredential: ICloudSyncCredential | undefined;
-    keylessCredential: IKeylessCloudSyncCredential | null;
+    keylessCredential: IKeylessCloudSyncCredential | null | undefined;
   }): Promise<string | null> {
     try {
       if (source === 'data' && item.data && syncCredential) {
@@ -454,13 +455,12 @@ class ServicePrimeCloudSync extends ServiceBase {
     items,
     targetMode,
     syncCredential,
-    keylessCredential,
   }: {
     items: IDBCloudSyncItem[];
     targetMode: ECloudSyncMode;
     syncCredential: ICloudSyncCredential | undefined;
-    keylessCredential: IKeylessCloudSyncCredential | null;
   }): Promise<IDBCloudSyncItem[]> {
+    const keylessCredential = syncCredential?.keylessCredential;
     if (
       targetMode === ECloudSyncMode.None ||
       (!syncCredential && !keylessCredential)
@@ -488,7 +488,6 @@ class ServicePrimeCloudSync extends ServiceBase {
               rawData: item.rawData,
               targetMode,
               syncCredential,
-              keylessCredential,
             });
             convertedItems.push(convertedItem);
           } else {
@@ -536,7 +535,6 @@ class ServicePrimeCloudSync extends ServiceBase {
           rawData,
           targetMode,
           syncCredential,
-          keylessCredential,
         });
 
         convertedItems.push(convertedItem);
@@ -559,7 +557,6 @@ class ServicePrimeCloudSync extends ServiceBase {
    * @param rawData Decrypted raw data
    * @param targetMode Target mode to generate data for
    * @param syncCredential OneKey ID credential
-   * @param keylessCredential Keyless credential
    * @returns Updated item with generated encrypted data
    */
   async generateMissingEncryptedData({
@@ -568,16 +565,14 @@ class ServicePrimeCloudSync extends ServiceBase {
     targetMode,
     // syncCredential is reserved for future OneKey ID encryption generation
     // Currently OneKey ID encryption is handled by existing flow in buildSyncItem
-    syncCredential: _syncCredential,
-    keylessCredential,
+    syncCredential,
   }: {
     item: IDBCloudSyncItem;
     rawData: string;
     targetMode: ECloudSyncMode;
     syncCredential: ICloudSyncCredential | undefined;
-    keylessCredential: IKeylessCloudSyncCredential | null;
   }): Promise<IDBCloudSyncItem> {
-    void _syncCredential; // Reserved for future use
+    const keylessCredential = syncCredential?.keylessCredential;
     const updatedItem: IDBCloudSyncItem = { ...item, rawData };
     const now = await this.timeNow();
 
@@ -626,7 +621,7 @@ class ServicePrimeCloudSync extends ServiceBase {
     }
 
     const syncCredential = await this.getSyncCredentialSafe();
-    const keylessCredential = await this.getKeylessCredential();
+    const keylessCredential = syncCredential?.keylessCredential;
 
     // Need at least one credential to perform conversion
     if (!syncCredential && !keylessCredential) {
@@ -646,7 +641,6 @@ class ServicePrimeCloudSync extends ServiceBase {
       items: itemsToConvert,
       targetMode: newMode,
       syncCredential,
-      keylessCredential,
     });
 
     // Save converted items
@@ -966,9 +960,12 @@ class ServicePrimeCloudSync extends ServiceBase {
       lockItem = undefined;
       // pwdHash = RESET_CLOUD_SYNC_MASTER_PASSWORD_UUID; // TODO server should clear pwdHash
     } else {
-      pwdHash =
-        await this.backgroundApi.serviceMasterPassword.getLocalMasterPasswordUUID();
-
+      if (activeMode === ECloudSyncMode.Keyless) {
+        pwdHash = '';
+      } else {
+        pwdHash =
+          await this.backgroundApi.serviceMasterPassword.getLocalMasterPasswordUUID();
+      }
       if (isFlush) {
         // eslint-disable-next-line no-param-reassign
         syncCredential = syncCredential || (await this.getSyncCredentialSafe());
@@ -1040,6 +1037,7 @@ class ServicePrimeCloudSync extends ServiceBase {
     setUndefinedTimeToNow: boolean | undefined;
   }) => {
     const now = await this.timeNow();
+    const syncMode = await this.getActiveSyncMode();
     const localData: ICloudSyncServerItem[] = localItems
       .map((item) => {
         let dataTimestamp = item.dataTime;
@@ -1060,10 +1058,13 @@ class ServicePrimeCloudSync extends ServiceBase {
       })
       .filter(Boolean);
 
-    const filteredLocalData = localData.filter(
-      (item) =>
-        (item.data || item.isDeleted) && item.pwdHash === pwdHash && pwdHash,
-    );
+    const filteredLocalData = localData.filter((item) => {
+      const pwdMatched = item.pwdHash === pwdHash && pwdHash;
+      return (
+        (item.data || item.isDeleted) &&
+        (pwdMatched || syncMode === ECloudSyncMode.Keyless)
+      );
+    });
 
     // TODO save localData to DB if setUndefinedTimeToNow available
 
@@ -1581,17 +1582,14 @@ class ServicePrimeCloudSync extends ServiceBase {
     noDebounceUpload,
   }: IStartServerSyncFlowParams = {}) {
     try {
-      const syncMode = await this.getActiveSyncMode();
-      if (syncMode === ECloudSyncMode.Keyless) {
-        // do nothing
-      } else {
-        if (!(await this.isCloudSyncIsAvailable())) {
-          return;
-        }
-        await this.ensureCloudSyncIsAvailable({
-          callerName,
-        });
+      // const syncMode = await this.getActiveSyncMode();
+
+      if (!(await this.isCloudSyncIsAvailable())) {
+        return;
       }
+      await this.ensureCloudSyncIsAvailable({
+        callerName,
+      });
 
       // when data is written, because the cached password is missing to encrypt, so data is undefined
       await this.fillingSyncItemsMissingDataFromRawData({
@@ -1785,11 +1783,26 @@ class ServicePrimeCloudSync extends ServiceBase {
 
   // TODO remove cache when logout, lock, change password/passcode, etc.
   getSyncCredentialWithCache = memoizee(
-    async () => {
+    async (): Promise<ICloudSyncCredential> => {
       const password =
         await this.backgroundApi.servicePassword.getCachedPassword();
       if (!password) {
         throw new OneKeyError('No password in memory');
+      }
+
+      // Check sync mode - if Keyless mode, only need keyless credential
+      const syncMode = await this.getActiveSyncMode();
+      if (syncMode === ECloudSyncMode.Keyless) {
+        const keylessCredential = await this.getKeylessCredential();
+        if (!keylessCredential) {
+          throw new OneKeyError('Failed to get keyless credential');
+        }
+        return {
+          primeAccountSalt: '',
+          securityPasswordR1: '',
+          masterPasswordUUID: '',
+          keylessCredential,
+        };
       }
 
       const { masterPasswordUUID, encryptedSecurityPasswordR1 } =
@@ -1821,6 +1834,7 @@ class ServicePrimeCloudSync extends ServiceBase {
         primeAccountSalt: accountSalt,
         securityPasswordR1,
         masterPasswordUUID,
+        keylessCredential: undefined,
       };
     },
     {
@@ -2191,6 +2205,7 @@ class ServicePrimeCloudSync extends ServiceBase {
   }: {
     skipUploadToServer: boolean;
   }) {
+    const syncMode = await this.getActiveSyncMode();
     const syncCredential = await this.getSyncCredentialSafe();
     if (!syncCredential) {
       return;
@@ -2200,7 +2215,13 @@ class ServicePrimeCloudSync extends ServiceBase {
     const itemsToUpdate: IDBCloudSyncItem[] = [];
     for (const item of items) {
       try {
-        if (!item.data && item.rawData) {
+        const itemData =
+          syncMode === ECloudSyncMode.Keyless ? item.keylessData : item.data;
+        const itemDataTime =
+          syncMode === ECloudSyncMode.Keyless
+            ? item.keylessDataTime
+            : item.dataTime;
+        if (!itemData && item.rawData) {
           const syncManager = this.getSyncManager(item.dataType);
           const rawDataJson = item.rawData
             ? (JSON.parse(item.rawData) as ICloudSyncRawDataJson | undefined)
@@ -2228,7 +2249,7 @@ class ServicePrimeCloudSync extends ServiceBase {
             if (target) {
               const itemToUpdate = await syncManager.buildSyncItem({
                 target: target as never,
-                dataTime: item.dataTime,
+                dataTime: itemDataTime,
                 syncCredential,
                 isDeleted: item.isDeleted,
               });
