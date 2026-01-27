@@ -21,3 +21,9 @@ export const KEYLESS_SYNC_ENCRYPTION_CONTEXT = 'onekey-keyless-cloud-sync-v1';
 
 /** Signature message validity period (5 minutes) */
 export const KEYLESS_SYNC_SIGN_MESSAGE_EXPIRY_MS = 5 * 60 * 1000;
+
+/** Keyless pwdHash prefix */
+export const KEYLESS_PWDHASH_PREFIX = 'keyless-';
+
+/** Keyless pwdHash context for derivation */
+export const KEYLESS_PWDHASH_CONTEXT = 'A236111E-EEA8-41CC-9DB8-737D6BCAF7C7';

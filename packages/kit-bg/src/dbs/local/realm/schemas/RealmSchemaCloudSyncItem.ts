@@ -28,11 +28,6 @@ export class RealmSchemaCloudSyncItem extends RealmObjectBase<IDBCloudSyncItem> 
 
   public serverUploaded!: boolean;
 
-  // Keyless encrypted data
-  public keylessData?: string;
-
-  public keylessDataTime?: number;
-
   public static override schema: Realm.ObjectSchema = {
     name: ELocalDBStoreNames.CloudSyncItem,
     primaryKey: 'id',
@@ -47,9 +42,6 @@ export class RealmSchemaCloudSyncItem extends RealmObjectBase<IDBCloudSyncItem> 
       pwdHash: 'string',
       localSceneUpdated: 'bool',
       serverUploaded: 'bool',
-      // Keyless encrypted data
-      keylessData: 'string?',
-      keylessDataTime: 'int?',
     },
   };
 
@@ -65,9 +57,6 @@ export class RealmSchemaCloudSyncItem extends RealmObjectBase<IDBCloudSyncItem> 
       pwdHash: this.pwdHash,
       localSceneUpdated: this.localSceneUpdated,
       serverUploaded: this.serverUploaded,
-      // Keyless encrypted data
-      keylessData: this.keylessData ?? undefined,
-      keylessDataTime: this.keylessDataTime ?? undefined,
     };
   }
 }

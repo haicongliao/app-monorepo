@@ -1803,9 +1803,6 @@ export abstract class LocalDbBase extends LocalDbBaseContainer {
       data: updateItem.data,
       dataTime: updateItem.dataTime ?? item.dataTime,
 
-      keylessData: updateItem.keylessData,
-      keylessDataTime: updateItem.keylessDataTime ?? item.keylessDataTime,
-
       isDeleted: updateItem.isDeleted,
       localSceneUpdated: updateItem.localSceneUpdated,
       serverUploaded: updateItem.serverUploaded,
