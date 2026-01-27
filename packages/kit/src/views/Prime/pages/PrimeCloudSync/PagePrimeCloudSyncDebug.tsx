@@ -351,7 +351,7 @@ function StatusPanel() {
 
     let lock: ICloudSyncServerItemByDownloaded | undefined;
     let serverUserInfo: IPrimeServerUserInfo | undefined;
-    let serverLockItem: IDBCloudSyncItem | undefined;
+    let serverLockItem: IDBCloudSyncItem | undefined | null;
     let cachePassword: string | undefined;
     let randomIdInfo: { uuid: string } | undefined;
 

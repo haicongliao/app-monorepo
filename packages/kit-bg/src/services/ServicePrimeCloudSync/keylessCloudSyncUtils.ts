@@ -14,18 +14,18 @@ import {
   publicFromPrivate,
   sign,
 } from '@onekeyhq/core/src/secret';
+import type { ICoreHdCredentialEncryptHex } from '@onekeyhq/core/src/types';
 import {
   KEYLESS_SYNC_DERIVATION_PATH_PREFIX,
   KEYLESS_SYNC_ENCRYPTION_CONTEXT,
 } from '@onekeyhq/shared/src/consts/keylessCloudSyncConsts';
+import { OneKeyLocalError } from '@onekeyhq/shared/src/errors';
 import bufferUtils from '@onekeyhq/shared/src/utils/bufferUtils';
-
 import type {
   IKeylessCloudSyncCredential,
   IKeylessCloudSyncSignMessage,
   IKeylessCloudSyncSignaturePayload,
 } from '@onekeyhq/shared/types/keylessCloudSync';
-import type { ICoreHdCredentialEncryptHex } from '@onekeyhq/core/src/types';
 
 /**
  * Derive sync credentials from Keyless wallet
@@ -58,7 +58,7 @@ export async function deriveKeylessCredential({
   const encryptionKeyInfo = keys.find((k) => k.path.endsWith('0/1'));
 
   if (!signingKey || !encryptionKeyInfo) {
-    throw new Error('Failed to derive keyless sync keys');
+    throw new OneKeyLocalError('Failed to derive keyless sync keys');
   }
 
   // Derive public key from private key
