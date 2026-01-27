@@ -63,6 +63,12 @@ export type ICloudSyncServerItem = {
   key: string;
   // nonce: number;
   // userId: string; supabase user id
+
+  // Keyless encrypted data (coexists with data in the same record)
+  /** Data encrypted with Keyless wallet derived key */
+  keylessData?: string;
+  /** keylessData update time (for comparison with dataTimestamp to determine latest) */
+  keylessDataTimestamp?: number;
 };
 export type ICloudSyncServerItemByDownloaded = {
   data: string;
@@ -77,6 +83,12 @@ export type ICloudSyncServerItemByDownloaded = {
   // createdAt: string;
   // updatedAt: string;
   // userId: string;
+
+  // Keyless encrypted data
+  /** Data encrypted with Keyless wallet derived key */
+  keylessData?: string;
+  /** keylessData update time */
+  keylessDataTimestamp?: number;
 };
 export type ICloudSyncCredential = {
   primeAccountSalt: string;

@@ -42,6 +42,9 @@ export type IPrimeConfigFlushInfo = {
     data: string;
     dataTimestamp: number;
     isDeleted: boolean;
+    // Keyless encrypted data
+    keylessData?: string;
+    keylessDataTimestamp?: number;
   };
   pwdHash: string;
   nonce: number;
@@ -56,6 +59,9 @@ export type IPrimeLockChangedInfo = {
     data: string;
     dataTimestamp: number;
     isDeleted: boolean;
+    // Keyless encrypted data
+    keylessData?: string;
+    keylessDataTimestamp?: number;
   };
   pwdHash: string;
 };

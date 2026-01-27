@@ -434,6 +434,12 @@ export type IDBCloudSyncItem = IDBBaseObject & {
   localSceneUpdated: boolean;
   serverUploaded: boolean;
 
+  // Keyless encrypted data (coexists with data in the same record)
+  /** Data encrypted with Keyless wallet derived key */
+  keylessData?: string;
+  /** keylessData update time (for comparison with dataTime to determine latest) */
+  keylessDataTime?: number;
+
   // runtime readonly field ----------------------------------------------
   rawDataJson?: ICloudSyncRawDataJson;
 };
