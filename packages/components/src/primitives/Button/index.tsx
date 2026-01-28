@@ -18,7 +18,6 @@ import { Spinner } from '../Spinner';
 import { useSharedPress } from './useEvent';
 
 import type { IIconProps, IKeyOfIcons } from '../Icon';
-import type { GestureResponderEvent } from 'react-native';
 
 export interface IButtonProps extends ThemeableStackProps {
   type?: ButtonHTMLAttributes<HTMLButtonElement>['type'];

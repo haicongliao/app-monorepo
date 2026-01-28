@@ -72,11 +72,6 @@ class KeylessCloudSyncMockApi {
     signatureHeader: string;
     postData: ICloudSyncUploadPostData;
   }): Promise<ICloudSyncUploadResult | undefined> {
-    void params.client.post<IApiClientResponse<ICloudSyncUploadResult>>(
-      '/prime/v1/sync/upload-keyless',
-      params.postData,
-    );
-
     return this.postToMockServer<ICloudSyncUploadResult>({
       client: params.client,
       url: '/prime/v1/sync/upload-keyless',
@@ -95,12 +90,6 @@ class KeylessCloudSyncMockApi {
     result: ICloudSyncCheckServerStatusResult;
     serverTime: string;
   }> {
-    void params.client.post<
-      IApiClientResponse<ICloudSyncCheckServerStatusResult>
-    >('/prime/v1/sync/check-keyless', {
-      ...params.postData,
-    });
-
     return this.postToMockServer<{
       result: ICloudSyncCheckServerStatusResult;
       serverTime: string;
@@ -119,11 +108,6 @@ class KeylessCloudSyncMockApi {
     signatureHeader?: string;
     postData: ICloudSyncDownloadPostData;
   }): Promise<ICloudSyncDownloadResult> {
-    void params.client.post<IApiClientResponse<ICloudSyncDownloadResult>>(
-      '/prime/v1/sync/download-keyless',
-      params.postData,
-    );
-
     if (params.publicKey && params.signatureHeader) {
       return this.postToMockServer<ICloudSyncDownloadResult>({
         client: params.client,

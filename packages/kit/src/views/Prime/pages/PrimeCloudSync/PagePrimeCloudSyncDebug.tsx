@@ -288,6 +288,16 @@ function SyncItemTable({ activeTab }: { activeTab: ITabType }) {
         />
         <Stack flex={1} />
         <Button
+          onPress={async () => {
+            await backgroundApiProxy.servicePrimeCloudSync.clearAllLocalSyncItems();
+            Toast.success({
+              title: 'success',
+            });
+          }}
+        >
+          清空本地同步数据
+        </Button>
+        <Button
           size="small"
           onPress={() => {
             // 复制 filteredItems

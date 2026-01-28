@@ -11,6 +11,36 @@ export type IBip32ExtendedKeySerialized = {
   key: string;
   chainCode: string;
 };
+
+/**
+ * BIP32 Extended Key
+ *
+ * Represents a BIP32 hierarchical deterministic key pair with chain code.
+ *
+ * **Key Encryption State:**
+ * The `key` field can be in two states depending on context:
+ *
+ * 1. **Unencrypted (Raw Private Key):**
+ *    - During BIP32 derivation calculations (CKDPriv, CKDPub)
+ *    - Internal processing within secret module
+ *    - Should NEVER be exposed outside the secret module
+ *
+ * 2. **Encrypted (AES-256 Encrypted Private Key):**
+ *    - When returned by `batchGetPrivateKeys()` or similar functions
+ *    - When stored or passed between modules
+ *    - Encryption method: AES-256-CBC with PBKDF2
+ *      - Random salt (32 bytes) + Random IV (16 bytes)
+ *      - Format: `[salt(32) + iv(16) + encrypted_data]`
+ *    - Must be decrypted with `decryptAsync({ password, data: key })` before use
+ *
+ * **For Public Keys:**
+ * When this type represents a public key (via `deriver.N()`):
+ * - `key` contains the raw public key (unencrypted, as public keys are meant to be public)
+ * - No encryption is applied
+ *
+ * @see batchGetKeys() in secret/index.ts for encryption logic
+ * @see encryptAsync() in secret/encryptors/aes256.ts for encryption implementation
+ */
 export type IBip32ExtendedKey = {
   key: Buffer;
   chainCode: Buffer;

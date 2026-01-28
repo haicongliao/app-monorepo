@@ -884,9 +884,6 @@ export abstract class LocalDbBase extends LocalDbBaseContainer {
       // TODO performance
       const { wallets } = await this.getWallets();
       const walletsByXfp = wallets.filter((w) => {
-        if (w.isKeyless && !includingKeylessWallets) {
-          return false;
-        }
         return w.xfp === xfp;
       });
       return walletsByXfp;
@@ -914,9 +911,6 @@ export abstract class LocalDbBase extends LocalDbBaseContainer {
       const { wallets } = await this.getWallets();
       if (walletType === WALLET_TYPE_HD) {
         const wallet = wallets.find((w) => {
-          if (w.isKeyless) {
-            return false;
-          }
           const r = w.type === walletType && w.hash === walletHash;
           return r;
         });

@@ -10,6 +10,10 @@ import {
   XStack,
 } from '@onekeyhq/components';
 import backgroundApiProxy from '@onekeyhq/kit/src/background/instance/backgroundApiProxy';
+import useAppNavigation from '@onekeyhq/kit/src/hooks/useAppNavigation';
+import { OneKeyLocalError } from '@onekeyhq/shared/src/errors';
+import { EModalRoutes } from '@onekeyhq/shared/src/routes';
+import { EPrimePages } from '@onekeyhq/shared/src/routes/prime';
 
 import { Layout } from './utils/Layout';
 
@@ -39,6 +43,7 @@ function demoError(error: unknown, apiName: string) {
 const defaultCallerName = 'CloudSyncGallery';
 
 export function CloudSyncApiTests() {
+  const navigation = useAppNavigation();
   const [callerName, setCallerName] = useState(defaultCallerName);
   const [encryptedPassword, setEncryptedPassword] = useState('');
 
@@ -157,6 +162,81 @@ export function CloudSyncApiTests() {
             }
           >
             Start Sync (Set Undefined Time)
+          </Button>
+        </XStack>
+
+        <XStack gap="$2" flexWrap="wrap">
+          <Button
+            onPressLoadingEnabled
+            onPress={() =>
+              handleApiCall(async () => {
+                const { password } =
+                  await backgroundApiProxy.servicePassword.promptPasswordVerify();
+
+                const syncCredential =
+                  await backgroundApiProxy.servicePrimeCloudSync.getSyncCredentialSafe();
+                if (!syncCredential) {
+                  throw new OneKeyLocalError('No sync credential');
+                }
+
+                return backgroundApiProxy.servicePrimeCloudSync.initLocalSyncItemsDB(
+                  {
+                    syncCredential,
+                    password,
+                  },
+                );
+              }, 'initLocalSyncItemsDB')
+            }
+            variant="secondary"
+          >
+            Init Local Sync Items DB
+          </Button>
+
+          <Button
+            onPressLoadingEnabled
+            onPress={() =>
+              handleApiCall(async () => {
+                const syncCredential =
+                  await backgroundApiProxy.servicePrimeCloudSync.getSyncCredentialSafe();
+                if (!syncCredential) {
+                  throw new OneKeyLocalError('No sync credential');
+                }
+                return backgroundApiProxy.servicePrimeCloudSync.initLocalSyncItemsDB(
+                  {
+                    syncCredential,
+                  },
+                );
+              }, 'initLocalSyncItemsDB (no password)')
+            }
+            variant="secondary"
+          >
+            Init Local Sync Items DB (No Password)
+          </Button>
+
+          <Button
+            onPressLoadingEnabled
+            onPress={() =>
+              handleApiCall(async () => {
+                await backgroundApiProxy.servicePassword.promptPasswordVerify();
+                const syncCredential =
+                  await backgroundApiProxy.servicePrimeCloudSync.getSyncCredentialSafe();
+                return syncCredential;
+              }, 'initLocalSyncItemsDB (no password)')
+            }
+            variant="secondary"
+          >
+            syncCredential
+          </Button>
+
+          <Button
+            onPress={() => {
+              navigation.pushModal(EModalRoutes.PrimeModal, {
+                screen: EPrimePages.PrimeCloudSyncDebug,
+              });
+            }}
+            variant="primary"
+          >
+            打开云同步调试页面
           </Button>
         </XStack>
       </Stack>

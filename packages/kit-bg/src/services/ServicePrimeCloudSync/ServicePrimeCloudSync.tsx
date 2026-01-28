@@ -859,15 +859,13 @@ class ServicePrimeCloudSync extends ServiceBase {
       lockItem = undefined;
       // pwdHash = RESET_CLOUD_SYNC_MASTER_PASSWORD_UUID; // TODO server should clear pwdHash
     } else {
-      if (activeMode === ECloudSyncMode.Keyless) {
-        pwdHash = '';
-      } else {
-        pwdHash =
-          await this.backgroundApi.serviceMasterPassword.getLocalMasterPasswordUUID();
-      }
+      // eslint-disable-next-line no-param-reassign
+      syncCredential = syncCredential || (await this.getSyncCredentialSafe());
+      pwdHash =
+        syncCredential?.keylessCredential?.pwdHash ||
+        syncCredential?.masterPasswordUUID ||
+        '';
       if (isFlush) {
-        // eslint-disable-next-line no-param-reassign
-        syncCredential = syncCredential || (await this.getSyncCredentialSafe());
         const syncCredentialForLock = syncCredential
           ? this.syncManagers.lock.getLockStaticSyncCredential(syncCredential)
           : undefined;
@@ -1499,8 +1497,13 @@ class ServicePrimeCloudSync extends ServiceBase {
       const allLocalItems = localItems;
       const totalItemsCount = allLocalItems.length;
 
+      const credential = await this.getSyncCredentialSafe();
+      // const pwdHash =
+      //   await this.backgroundApi.serviceMasterPassword.getLocalMasterPasswordUUIDSafe();
       const pwdHash =
-        await this.backgroundApi.serviceMasterPassword.getLocalMasterPasswordUUIDSafe();
+        credential?.keylessCredential?.pwdHash ||
+        credential?.masterPasswordUUID ||
+        '';
       if (pwdHash) {
         localItems = allLocalItems.filter((item) => item.pwdHash === pwdHash);
         const availableItemsCount = localItems.length;
@@ -1671,6 +1674,7 @@ class ServicePrimeCloudSync extends ServiceBase {
     }
   }
 
+  @backgroundMethod()
   async getSyncCredentialSafe(): Promise<ICloudSyncCredential | undefined> {
     try {
       return await this.getSyncCredentialWithCache();
@@ -1704,15 +1708,17 @@ class ServicePrimeCloudSync extends ServiceBase {
         };
       }
 
-      const { masterPasswordUUID, encryptedSecurityPasswordR1 } =
-        await primeMasterPasswordPersistAtom.get();
-      if (!masterPasswordUUID || !encryptedSecurityPasswordR1) {
-        void this.showAlertDialogIfLocalPasswordNotSet();
-        throw new OneKeyError(
-          'No masterPasswordUUID or encryptedSecurityPasswordR1 in atom',
-        );
-      }
-
+      const {
+        masterPasswordUUID,
+        // encryptedSecurityPasswordR1
+      } = await primeMasterPasswordPersistAtom.get();
+      // if (!masterPasswordUUID || !encryptedSecurityPasswordR1) {
+      //   void this.showAlertDialogIfLocalPasswordNotSet();
+      //   throw new OneKeyError(
+      //     'No masterPasswordUUID or encryptedSecurityPasswordR1 in atom',
+      //   );
+      // }
+      //
       const securityPasswordR1Info =
         await this.backgroundApi.serviceMasterPassword.getSecurityPasswordR1InfoSafe(
           {

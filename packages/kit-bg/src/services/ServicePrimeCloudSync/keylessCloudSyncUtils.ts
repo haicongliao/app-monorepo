@@ -15,6 +15,10 @@ import {
   publicFromPrivate,
   sign,
 } from '@onekeyhq/core/src/secret';
+import {
+  decryptAsync,
+  encryptAsync,
+} from '@onekeyhq/core/src/secret/encryptors/aes256';
 import type { ICoreHdCredentialEncryptHex } from '@onekeyhq/core/src/types';
 import {
   KEYLESS_PWDHASH_CONTEXT,
@@ -97,13 +101,24 @@ export async function deriveKeylessCredential({
     password,
   );
 
-  const encryptionKeyHex = bufferUtils.bytesToHex(
-    encryptionKeyInfo.extendedKey.key,
-  );
+  // Decrypt private keys to get deterministic hex values
+  // batchGetPrivateKeys returns encrypted keys with random salt/IV,
+  // so we decrypt them to ensure consistent values across sessions
+  const decryptedSigningPrivateKey = await decryptAsync({
+    password,
+    data: signingKey.extendedKey.key,
+  });
+
+  const decryptedEncryptionKey = await decryptAsync({
+    password,
+    data: encryptionKeyInfo.extendedKey.key,
+  });
+
+  const encryptionKeyHex = bufferUtils.bytesToHex(decryptedEncryptionKey);
 
   return {
     keylessWalletId,
-    signingPrivateKey: bufferUtils.bytesToHex(signingKey.extendedKey.key),
+    signingPrivateKey: bufferUtils.bytesToHex(decryptedSigningPrivateKey),
     signingPublicKey: bufferUtils.bytesToHex(signingPublicKey),
     encryptionKey: encryptionKeyHex,
     pwdHash: computeKeylessPwdHash(encryptionKeyHex),
@@ -177,9 +192,9 @@ function generateNonce(): string {
 /**
  * Sign message and build Header content
  *
- * @param signingPrivateKey - Signing private key (hex)
+ * @param signingPrivateKey - Signing private key (decrypted, hex format)
  * @param signingPublicKey - Signing public key (hex)
- * @param password - Wallet password (for decrypting private key)
+ * @param password - Wallet password (for encrypting private key before signing)
  * @param dataHash - Data hash to include when uploading (optional)
  * @returns Base64 encoded signature Header value
  */
@@ -208,10 +223,16 @@ export async function buildKeylessSignatureHeader({
   const messageString = JSON.stringify(signMessage);
   const messageHash = sha256(bufferUtils.toBuffer(messageString, 'utf8'));
 
-  // Sign (private key is encrypted, needs password to decrypt)
+  // Encrypt private key before signing (sign function expects encrypted key)
+  const encryptedPrivateKey = await encryptAsync({
+    password,
+    data: bufferUtils.toBuffer(signingPrivateKey, 'hex'),
+  });
+
+  // Sign using encrypted private key
   const signature = await sign(
     'secp256k1',
-    bufferUtils.toBuffer(signingPrivateKey, 'hex'),
+    encryptedPrivateKey,
     Buffer.from(messageHash),
     password,
   );

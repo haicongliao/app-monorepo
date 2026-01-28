@@ -18,7 +18,7 @@ export interface IKeylessCloudSyncCredential {
   /** Encryption key (hex) - derivation path m/44'/1919'/0'/0/1 */
   encryptionKey: string;
   /** Password hash (computed from encryptionKey for sync item validation) */
-  pwdHash: string;
+  pwdHash: string; // TODO save to Wallet DB
 }
 
 /**
