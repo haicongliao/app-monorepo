@@ -27,6 +27,7 @@ import type {
 import {
   decryptWithKeylessKey,
   encryptWithKeylessKey,
+  isKeylessPwdHash,
 } from './keylessCloudSyncUtils';
 
 import type {
@@ -36,6 +37,26 @@ import type {
 } from '../../dbs/local/types';
 
 class CloudSyncItemBuilder {
+  /**
+   * Get pwdHash from sync credential
+   * For keyless mode, returns precomputed pwdHash from keylessCredential
+   * For OneKey ID mode, returns masterPasswordUUID
+   */
+  getPwdHash(syncCredential: ICloudSyncCredential | undefined): string {
+    if (!syncCredential) {
+      return '';
+    }
+
+    const { keylessCredential } = syncCredential;
+    if (keylessCredential) {
+      // pwdHash is precomputed in deriveKeylessCredential
+      return keylessCredential.pwdHash;
+    }
+
+    // Fallback to OneKey ID mode
+    return syncCredential.masterPasswordUUID || '';
+  }
+
   canLocalItemSyncToScene({
     item,
     syncCredential,
@@ -43,12 +64,14 @@ class CloudSyncItemBuilder {
     item: IDBCloudSyncItem;
     syncCredential: ICloudSyncCredential;
   }) {
+    const pwdHash = this.getPwdHash(syncCredential);
+
     return (
       !item.localSceneUpdated &&
       (item.data || item.isDeleted) &&
       item.dataTime &&
-      // TODO server item.pwdHash missing
-      (item.pwdHash === syncCredential.masterPasswordUUID || !item.pwdHash)
+      // Check pwdHash matches current mode or is empty
+      (item.pwdHash === pwdHash || !item.pwdHash)
     );
   }
 
@@ -154,27 +177,23 @@ class CloudSyncItemBuilder {
     syncCredential: ICloudSyncCredential | undefined;
     dataTime: number | undefined;
   }) {
-    const isKeyless = !!syncCredential?.keylessCredential;
     const { rawData, encryptedData } = await this.encryptSyncItem({
       rawDataJson,
       syncCredential,
     });
+
+    // Compute pwdHash using unified method
+    const pwdHash = encryptedData ? this.getPwdHash(syncCredential) : '';
+
     const item: IDBCloudSyncItem = {
       id: key,
       rawKey: rawDataJson.rawKey,
       dataType: rawDataJson.dataType,
       rawData,
-
-      data: isKeyless ? undefined : encryptedData,
-      dataTime: isKeyless ? undefined : dataTime,
-
-      keylessData: isKeyless ? encryptedData : undefined,
-      keylessDataTime: isKeyless ? dataTime : undefined,
-
+      data: encryptedData,
+      dataTime,
       isDeleted: false, // TODO re-update deleted items
-
-      pwdHash: encryptedData ? syncCredential?.masterPasswordUUID || '' : '',
-
+      pwdHash,
       localSceneUpdated: false,
       serverUploaded: false,
     };
@@ -231,32 +250,32 @@ class CloudSyncItemBuilder {
     let rawDataJson: ICloudSyncRawDataJson | undefined;
 
     if (syncCredential && item.data) {
-      const { keylessCredential } = syncCredential;
       let decryptedData: string | undefined;
 
-      // Use keyless decryption if keylessCredential is available
-      if (keylessCredential) {
+      // Determine decryption method based on pwdHash prefix
+      if (isKeylessPwdHash(item.pwdHash) && syncCredential.keylessCredential) {
+        // Keyless decryption
         try {
           decryptedData = await decryptWithKeylessKey({
             encryptedData: item.data,
-            encryptionKey: keylessCredential.encryptionKey,
+            encryptionKey: syncCredential.keylessCredential.encryptionKey,
           });
         } catch (error) {
           console.error('decryptSyncItem keyless decrypt error', error, item);
           throw new IncorrectMasterPassword();
         }
-      } else {
-        // Fallback to OneKey ID decryption
+      } else if (!isKeylessPwdHash(item.pwdHash)) {
+        // OneKey ID decryption
+        let credentialToUse = syncCredential;
         if (item.dataType === EPrimeCloudSyncDataType.Lock) {
           const syncCredentialForLock: ICloudSyncCredentialForLock = {
             ...syncCredential,
             securityPasswordR1: 'lock',
           };
-          // eslint-disable-next-line no-param-reassign
-          syncCredential = syncCredentialForLock;
+          credentialToUse = syncCredentialForLock;
         }
         const { primeAccountSalt, securityPasswordR1: syncPassword } =
-          syncCredential;
+          credentialToUse;
         const password = this.buildEncryptPassword({
           primeAccountSalt,
           syncPassword,
@@ -277,9 +296,7 @@ class CloudSyncItemBuilder {
 
       try {
         if (decryptedData) {
-          // eslint-disable-next-line @typescript-eslint/no-unsafe-return
           rawDataJson = JSON.parse(decryptedData) as ICloudSyncRawDataJson;
-          item.pwdHash = syncCredential?.masterPasswordUUID || '';
         }
       } catch (error) {
         console.error('decryptSyncItem jsonParse error', error, item);

@@ -46,8 +46,9 @@ class KeylessCloudSyncMockApi {
     for (const newItem of items) {
       const existing = itemMap.get(newItem.key);
       if (existing) {
-        existing.keylessData = newItem.keylessData;
-        existing.keylessDataTimestamp = newItem.keylessDataTimestamp;
+        existing.data = newItem.data;
+        existing.dataTimestamp = newItem.dataTimestamp;
+        existing.pwdHash = newItem.pwdHash;
         existing.isDeleted = newItem.isDeleted;
         updated += 1;
       } else {
@@ -107,7 +108,7 @@ class KeylessCloudSyncMockApi {
     const getLocalTime = (item: { dataTimestamp: number | undefined }) =>
       item.dataTimestamp ?? 0;
     const getServerTime = (item: ICloudSyncServerItem) =>
-      item.keylessDataTimestamp ?? item.dataTimestamp ?? 0;
+      item.dataTimestamp ?? 0;
 
     const obsoleted: string[] = [];
     const updated: ICloudSyncServerItem[] = [];
@@ -198,7 +199,7 @@ class KeylessCloudSyncMockApi {
     const now = await this.timeNow();
     const mapped: ICloudSyncServerItemByDownloaded[] = filtered.map((item) => ({
       ...item,
-      dataTimestamp: item.dataTimestamp ?? item.keylessDataTimestamp ?? now,
+      dataTimestamp: item.dataTimestamp ?? now,
     }));
     return {
       nonce: 0,

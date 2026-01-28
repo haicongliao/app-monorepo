@@ -17,6 +17,8 @@ export interface IKeylessCloudSyncCredential {
   signingPublicKey: string;
   /** Encryption key (hex) - derivation path m/44'/1919'/0'/0/1 */
   encryptionKey: string;
+  /** Password hash (computed from encryptionKey for sync item validation) */
+  pwdHash: string;
 }
 
 /**

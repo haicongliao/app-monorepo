@@ -6,6 +6,7 @@
  */
 
 import { sha256 } from '@noble/hashes/sha256';
+import { sha512 } from '@noble/hashes/sha512';
 
 import {
   batchGetPrivateKeys,
@@ -16,6 +17,8 @@ import {
 } from '@onekeyhq/core/src/secret';
 import type { ICoreHdCredentialEncryptHex } from '@onekeyhq/core/src/types';
 import {
+  KEYLESS_PWDHASH_CONTEXT,
+  KEYLESS_PWDHASH_PREFIX,
   KEYLESS_SYNC_DERIVATION_PATH_PREFIX,
   KEYLESS_SYNC_ENCRYPTION_CONTEXT,
 } from '@onekeyhq/shared/src/consts/keylessCloudSyncConsts';
@@ -26,6 +29,32 @@ import type {
   IKeylessCloudSyncSignMessage,
   IKeylessCloudSyncSignaturePayload,
 } from '@onekeyhq/shared/types/keylessCloudSync';
+
+/**
+ * Compute pwdHash for Keyless mode
+ *
+ * Format: `keyless-{sha512(context:encryptionKey)}`
+ *
+ * @param encryptionKey - Keyless encryption key (hex string)
+ * @returns pwdHash string with 'keyless-' prefix
+ */
+export function computeKeylessPwdHash(encryptionKey: string): string {
+  const context: string = KEYLESS_PWDHASH_CONTEXT;
+  const hashInput = `${context}:${encryptionKey}`;
+  const hash = sha512(bufferUtils.toBuffer(hashInput, 'utf8'));
+  const prefix: string = KEYLESS_PWDHASH_PREFIX;
+  return `${prefix}${bufferUtils.bytesToHex(hash)}`;
+}
+
+/**
+ * Check if pwdHash is a Keyless pwdHash
+ *
+ * @param pwdHash - pwdHash string to check
+ * @returns true if pwdHash starts with 'keyless-' prefix
+ */
+export function isKeylessPwdHash(pwdHash: string): boolean {
+  return pwdHash.startsWith(KEYLESS_PWDHASH_PREFIX);
+}
 
 /**
  * Derive sync credentials from Keyless wallet
@@ -68,11 +97,16 @@ export async function deriveKeylessCredential({
     password,
   );
 
+  const encryptionKeyHex = bufferUtils.bytesToHex(
+    encryptionKeyInfo.extendedKey.key,
+  );
+
   return {
     keylessWalletId,
     signingPrivateKey: bufferUtils.bytesToHex(signingKey.extendedKey.key),
     signingPublicKey: bufferUtils.bytesToHex(signingPublicKey),
-    encryptionKey: bufferUtils.bytesToHex(encryptionKeyInfo.extendedKey.key),
+    encryptionKey: encryptionKeyHex,
+    pwdHash: computeKeylessPwdHash(encryptionKeyHex),
   };
 }
 

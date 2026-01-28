@@ -97,9 +97,9 @@ import { keylessMockApi } from './keylessCloudSyncMockApi';
 import {
   buildKeylessSignatureHeader,
   computeDataHash,
-  decryptWithKeylessKey,
+  computeKeylessPwdHash,
   deriveKeylessCredential,
-  encryptWithKeylessKey,
+  isKeylessPwdHash,
 } from './keylessCloudSyncUtils';
 
 import type { RealmSchemaCloudSyncItem } from '../../dbs/local/realm/schemas/RealmSchemaCloudSyncItem';
@@ -216,8 +216,8 @@ class ServicePrimeCloudSync extends ServiceBase {
    * Get active sync mode based on configuration and wallet state
    *
    * Rules:
-   * 1. If OneKey Cloud sync is enabled → primary mode is OneKey ID (use `data` field)
-   * 2. Else if Keyless wallet exists → primary mode is Keyless (use `keylessData` field)
+   * 1. If OneKey Cloud sync is enabled → primary mode is OneKey ID (pwdHash = masterPasswordUUID)
+   * 2. Else if Keyless wallet exists → primary mode is Keyless (pwdHash = keyless-{hash})
    * 3. Else → no cloud sync, local storage only
    *
    * @returns Active sync mode
@@ -349,106 +349,59 @@ class ServicePrimeCloudSync extends ServiceBase {
   }
 
   /**
-   * Determine which data source is the latest for a sync item
+   * Compute pwdHash for target mode
    *
-   * Rules:
-   * 1. Both dataTime and keylessDataTime exist → use the later one
-   * 2. Only one exists → use the existing one
-   * 3. Same timestamp → use current primary mode
-   *
-   * @param item Local sync item
-   * @param primaryMode Current primary mode
-   * @returns 'data' | 'keylessData' | null (if both missing)
+   * @param syncCredential Sync credential
+   * @param targetMode Target sync mode
+   * @returns pwdHash string
    */
-  determineLatestDataSource(
-    item: IDBCloudSyncItem,
-    primaryMode: ECloudSyncMode,
-  ): 'data' | 'keylessData' | null {
-    const hasData = !!item.data;
-    const hasKeylessData = !!item.keylessData;
-    const dataTime = item.dataTime ?? 0;
-    const keylessDataTime = item.keylessDataTime ?? 0;
-
-    // Neither exists
-    if (!hasData && !hasKeylessData) {
-      return null;
+  computePwdHashForMode(
+    syncCredential: ICloudSyncCredential | undefined,
+    targetMode: ECloudSyncMode,
+  ): string {
+    if (!syncCredential) {
+      return '';
     }
-
-    // Only one exists
-    if (hasData && !hasKeylessData) {
-      return 'data';
+    if (targetMode === ECloudSyncMode.Keyless) {
+      return syncCredential?.keylessCredential?.pwdHash || '';
     }
-    if (!hasData && hasKeylessData) {
-      return 'keylessData';
-    }
-
-    // Both exist, compare timestamps
-    if (dataTime > keylessDataTime) {
-      return 'data';
-    }
-    if (keylessDataTime > dataTime) {
-      return 'keylessData';
-    }
-
-    // Same timestamp, use primary mode
-    return primaryMode === ECloudSyncMode.Keyless ? 'keylessData' : 'data';
+    return syncCredential?.masterPasswordUUID || '';
   }
 
   /**
-   * Decrypt sync item data based on source
+   * Build sync credential for target mode
    *
-   * @param item Sync item to decrypt
-   * @param source Data source ('data' or 'keylessData')
-   * @param syncCredential OneKey ID sync credential (for 'data')
-   * @param keylessCredential Keyless credential (for 'keylessData')
-   * @returns Decrypted raw data or null if failed
+   * @param syncCredential Full sync credential
+   * @param targetMode Target sync mode
+   * @returns Credential configured for target mode
    */
-  async decryptSyncItemBySource({
-    item,
-    source,
-    syncCredential,
-    keylessCredential,
-  }: {
-    item: IDBCloudSyncItem;
-    source: 'data' | 'keylessData';
-    syncCredential: ICloudSyncCredential | undefined;
-    keylessCredential: IKeylessCloudSyncCredential | null | undefined;
-  }): Promise<string | null> {
-    try {
-      if (source === 'data' && item.data && syncCredential) {
-        const decrypted = await cloudSyncItemBuilder.decryptSyncItem({
-          item,
-          syncCredential,
-        });
-        // rawData is set on the dbItem during decryption
-        return decrypted.dbItem?.rawData ?? null;
-      }
-
-      if (source === 'keylessData' && item.keylessData && keylessCredential) {
-        return await decryptWithKeylessKey({
-          encryptedData: item.keylessData,
-          encryptionKey: keylessCredential.encryptionKey,
-        });
-      }
-
-      return null;
-    } catch (error) {
-      console.error(`[PrimeCloudSync] Failed to decrypt ${source}:`, error);
-      return null;
+  buildCredentialForTargetMode(
+    syncCredential: ICloudSyncCredential | undefined,
+    targetMode: ECloudSyncMode,
+  ): ICloudSyncCredential | undefined {
+    if (!syncCredential) {
+      return undefined;
     }
+    if (targetMode === ECloudSyncMode.Keyless) {
+      // For Keyless mode, use keylessCredential
+      return syncCredential.keylessCredential ? syncCredential : undefined;
+    }
+    // For OneKey ID mode, exclude keylessCredential
+    return {
+      ...syncCredential,
+      keylessCredential: undefined,
+    };
   }
 
   /**
    * Convert data between OneKey ID encryption and Keyless encryption
    *
-   * This method handles the conversion when switching between sync modes:
-   * - When switching to Keyless: decrypt `data` and generate `keylessData`
-   * - When switching to OneKey ID: decrypt `keylessData` and generate `data`
+   * This method handles the conversion when switching between sync modes.
+   * Now uses unified data/pwdHash approach - pwdHash determines decryption method.
    *
    * @param items Items to convert
    * @param targetMode Target encryption mode
-   * @param syncCredential OneKey ID credential
-   * @param keylessCredential Keyless credential
+   * @param syncCredential Sync credential
    * @returns Converted items
    */
   async convertSyncItemsForModeSwitch({
@@ -460,15 +413,15 @@ class ServicePrimeCloudSync extends ServiceBase {
     targetMode: ECloudSyncMode;
     syncCredential: ICloudSyncCredential | undefined;
   }): Promise<IDBCloudSyncItem[]> {
-    const keylessCredential = syncCredential?.keylessCredential;
-    if (
-      targetMode === ECloudSyncMode.None ||
-      (!syncCredential && !keylessCredential)
-    ) {
+    if (targetMode === ECloudSyncMode.None || !syncCredential) {
       return items;
     }
 
     const convertedItems: IDBCloudSyncItem[] = [];
+    const targetPwdHash = this.computePwdHashForMode(
+      syncCredential,
+      targetMode,
+    );
 
     for (const item of items) {
       try {
@@ -478,50 +431,39 @@ class ServicePrimeCloudSync extends ServiceBase {
           continue;
         }
 
-        // Determine latest data source
-        const latestSource = this.determineLatestDataSource(item, targetMode);
-        if (!latestSource) {
-          // No data to convert, try to use rawData if available
-          if (item.rawData) {
-            const convertedItem = await this.generateMissingEncryptedData({
-              item,
-              rawData: item.rawData,
-              targetMode,
-              syncCredential,
-            });
-            convertedItems.push(convertedItem);
-          } else {
-            convertedItems.push(item);
-          }
+        // pwdHash already matches target, no conversion needed
+        if (item.pwdHash === targetPwdHash && item.data) {
+          convertedItems.push(item);
           continue;
         }
 
-        // Decrypt latest data
-        let rawData = await this.decryptSyncItemBySource({
-          item,
-          source: latestSource,
-          syncCredential,
-          keylessCredential,
-        });
-
-        // Fallback: try the other source if decryption failed
-        if (!rawData) {
-          const fallbackSource =
-            latestSource === 'data' ? 'keylessData' : 'data';
-          rawData = await this.decryptSyncItemBySource({
-            item,
-            source: fallbackSource,
-            syncCredential,
-            keylessCredential,
-          });
+        // Try to decrypt existing data
+        let rawDataJson: ICloudSyncRawDataJson | undefined;
+        if (item.data) {
+          try {
+            const decrypted = await cloudSyncItemBuilder.decryptSyncItem({
+              item,
+              syncCredential,
+            });
+            rawDataJson = decrypted.rawDataJson;
+          } catch (error) {
+            console.error(
+              `[PrimeCloudSync] Failed to decrypt item ${item.id}:`,
+              error,
+            );
+          }
         }
 
         // Fallback: use rawData if available
-        if (!rawData && item.rawData) {
-          rawData = item.rawData;
+        if (!rawDataJson && item.rawData) {
+          try {
+            rawDataJson = JSON.parse(item.rawData) as ICloudSyncRawDataJson;
+          } catch {
+            // ignore
+          }
         }
 
-        if (!rawData) {
+        if (!rawDataJson) {
           console.warn(
             `[PrimeCloudSync] Cannot decrypt item ${item.id}, skipping conversion`,
           );
@@ -529,15 +471,23 @@ class ServicePrimeCloudSync extends ServiceBase {
           continue;
         }
 
-        // Generate the target encrypted data
-        const convertedItem = await this.generateMissingEncryptedData({
-          item,
-          rawData,
-          targetMode,
+        // Re-encrypt with target mode credentials
+        const targetCredential = this.buildCredentialForTargetMode(
           syncCredential,
-        });
+          targetMode,
+        );
+        const reEncrypted =
+          await cloudSyncItemBuilder.buildSyncItemFromRawDataJson({
+            key: item.id,
+            rawDataJson,
+            syncCredential: targetCredential,
+            dataTime: Date.now(),
+          });
 
-        convertedItems.push(convertedItem);
+        convertedItems.push({
+          ...reEncrypted,
+          serverUploaded: false,
+        });
       } catch (error) {
         console.error(
           `[PrimeCloudSync] Failed to convert item ${item.id}:`,
@@ -548,61 +498,6 @@ class ServicePrimeCloudSync extends ServiceBase {
     }
 
     return convertedItems;
-  }
-
-  /**
-   * Generate missing encrypted data for a sync item
-   *
-   * @param item Original item
-   * @param rawData Decrypted raw data
-   * @param targetMode Target mode to generate data for
-   * @param syncCredential OneKey ID credential
-   * @returns Updated item with generated encrypted data
-   */
-  async generateMissingEncryptedData({
-    item,
-    rawData,
-    targetMode,
-    // syncCredential is reserved for future OneKey ID encryption generation
-    // Currently OneKey ID encryption is handled by existing flow in buildSyncItem
-    syncCredential,
-  }: {
-    item: IDBCloudSyncItem;
-    rawData: string;
-    targetMode: ECloudSyncMode;
-    syncCredential: ICloudSyncCredential | undefined;
-  }): Promise<IDBCloudSyncItem> {
-    const keylessCredential = syncCredential?.keylessCredential;
-    const updatedItem: IDBCloudSyncItem = { ...item, rawData };
-    const now = await this.timeNow();
-
-    // Generate Keyless encrypted data if targeting Keyless mode
-    if (
-      (targetMode === ECloudSyncMode.Keyless ||
-        targetMode === ECloudSyncMode.OnekeyId) &&
-      keylessCredential &&
-      !item.keylessData
-    ) {
-      try {
-        updatedItem.keylessData = await encryptWithKeylessKey({
-          rawData,
-          encryptionKey: keylessCredential.encryptionKey,
-        });
-        // Use source timestamp to indicate same version, avoid "pseudo-latest"
-        updatedItem.keylessDataTime = item.dataTime ?? now;
-      } catch (error) {
-        console.error(
-          '[PrimeCloudSync] Failed to generate keylessData:',
-          error,
-        );
-      }
-    }
-
-    // Generate OneKey ID encrypted data if targeting OneKey ID mode
-    // Note: OneKey ID encryption is handled by existing flow in buildSyncItem
-    // Here we just ensure rawData is set for later encryption
-
-    return updatedItem;
   }
 
   /**
@@ -621,10 +516,7 @@ class ServicePrimeCloudSync extends ServiceBase {
     }
 
     const syncCredential = await this.getSyncCredentialSafe();
-    const keylessCredential = syncCredential?.keylessCredential;
-
-    // Need at least one credential to perform conversion
-    if (!syncCredential && !keylessCredential) {
+    if (!syncCredential) {
       return;
     }
 
@@ -637,18 +529,27 @@ class ServicePrimeCloudSync extends ServiceBase {
       return;
     }
 
+    const targetPwdHash = this.computePwdHashForMode(syncCredential, newMode);
+    const itemsNeedConversion = itemsToConvert.filter(
+      (item) => item.pwdHash !== targetPwdHash || !item.data,
+    );
+
+    if (itemsNeedConversion.length === 0) {
+      return;
+    }
+
     const convertedItems = await this.convertSyncItemsForModeSwitch({
-      items: itemsToConvert,
+      items: itemsNeedConversion,
       targetMode: newMode,
       syncCredential,
     });
 
     // Save converted items
     const itemsNeedUpdate = convertedItems.filter((converted, index) => {
-      const original = itemsToConvert[index];
-      // Check if keylessData was generated
+      const original = itemsNeedConversion[index];
       return (
-        converted.keylessData !== original.keylessData ||
+        converted.pwdHash !== original.pwdHash ||
+        converted.data !== original.data ||
         converted.rawData !== original.rawData
       );
     });
@@ -2205,7 +2106,6 @@ class ServicePrimeCloudSync extends ServiceBase {
   }: {
     skipUploadToServer: boolean;
   }) {
-    const syncMode = await this.getActiveSyncMode();
     const syncCredential = await this.getSyncCredentialSafe();
     if (!syncCredential) {
       return;
@@ -2215,13 +2115,8 @@ class ServicePrimeCloudSync extends ServiceBase {
     const itemsToUpdate: IDBCloudSyncItem[] = [];
     for (const item of items) {
       try {
-        const itemData =
-          syncMode === ECloudSyncMode.Keyless ? item.keylessData : item.data;
-        const itemDataTime =
-          syncMode === ECloudSyncMode.Keyless
-            ? item.keylessDataTime
-            : item.dataTime;
-        if (!itemData && item.rawData) {
+        // Check if data field is missing
+        if (!item.data && item.rawData) {
           const syncManager = this.getSyncManager(item.dataType);
           const rawDataJson = item.rawData
             ? (JSON.parse(item.rawData) as ICloudSyncRawDataJson | undefined)
@@ -2237,19 +2132,11 @@ class ServicePrimeCloudSync extends ServiceBase {
               target = await syncManager.buildSyncTargetByPayload({
                 payload: rawDataJson?.payload as any,
               });
-              // const record = await syncManager.getDBRecordBySyncPayload({
-              //   payload: rawDataJson?.payload as any,
-              // });
-              // if (record) {
-              //   target = await syncManager.buildSyncTargetByDBQuery({
-              //     dbRecord: record as never,
-              //   });
-              // }
             }
             if (target) {
               const itemToUpdate = await syncManager.buildSyncItem({
                 target: target as never,
-                dataTime: itemDataTime,
+                dataTime: item.dataTime,
                 syncCredential,
                 isDeleted: item.isDeleted,
               });
@@ -2442,6 +2329,13 @@ class ServicePrimeCloudSync extends ServiceBase {
     localItem: IDBCloudSyncItem;
     dataTimestamp?: number;
   }): ICloudSyncServerItem | null {
+    // Skip Lock items with keyless pwdHash
+    if (
+      localItem.dataType === EPrimeCloudSyncDataType.Lock &&
+      isKeylessPwdHash(localItem.pwdHash)
+    ) {
+      return null;
+    }
     const serverItem: ICloudSyncServerItem = {
       key: localItem.id,
       dataType: localItem.dataType,
@@ -2449,16 +2343,7 @@ class ServicePrimeCloudSync extends ServiceBase {
       dataTimestamp: dataTimestamp ?? localItem.dataTime,
       isDeleted: localItem.isDeleted,
       pwdHash: localItem.pwdHash,
-
-      keylessData: localItem.keylessData,
-      keylessDataTimestamp: localItem.keylessDataTime,
     };
-    if (
-      localItem.dataType === EPrimeCloudSyncDataType.Lock &&
-      localItem.keylessData
-    ) {
-      return null;
-    }
     return serverItem;
   }
 
@@ -2473,6 +2358,13 @@ class ServicePrimeCloudSync extends ServiceBase {
     syncCredential: ICloudSyncCredential | undefined;
     serverPwdHash: string;
   }): Promise<IDBCloudSyncItem | null> {
+    // Skip Lock items with keyless pwdHash
+    if (
+      serverItem.dataType === EPrimeCloudSyncDataType.Lock &&
+      isKeylessPwdHash(serverItem.pwdHash)
+    ) {
+      return null;
+    }
     const localItem: IDBCloudSyncItem = {
       id: serverItem.key,
       rawKey: '',
@@ -2481,21 +2373,10 @@ class ServicePrimeCloudSync extends ServiceBase {
       data: serverItem.data,
       dataTime: serverItem.dataTimestamp,
       isDeleted: serverItem.isDeleted,
-
       pwdHash: serverItem.pwdHash || serverPwdHash,
-
       localSceneUpdated: false, // server item
       serverUploaded: false,
-
-      keylessData: serverItem.keylessData,
-      keylessDataTime: serverItem.keylessDataTimestamp,
     };
-    if (
-      serverItem.keylessData &&
-      serverItem.dataType === EPrimeCloudSyncDataType.Lock
-    ) {
-      return null;
-    }
     cloudSyncItemBuilder.setDefaultPropsOfServerToLocalItem({
       localItem,
     });
