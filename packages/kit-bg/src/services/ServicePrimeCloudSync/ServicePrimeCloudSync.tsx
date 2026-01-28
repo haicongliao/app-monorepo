@@ -36,8 +36,8 @@ import timerUtils from '@onekeyhq/shared/src/utils/timerUtils';
 import type { IServerNetwork } from '@onekeyhq/shared/types';
 import type { IDBCustomRpc } from '@onekeyhq/shared/types/customRpc';
 import type { IApiClientResponse } from '@onekeyhq/shared/types/endpoint';
-import { ECloudSyncMode } from '@onekeyhq/shared/types/keylessCloudSync';
 import type { IKeylessCloudSyncCredential } from '@onekeyhq/shared/types/keylessCloudSync';
+import { ECloudSyncMode } from '@onekeyhq/shared/types/keylessCloudSync';
 import type { IMarketWatchListItemV2 } from '@onekeyhq/shared/types/market';
 import type {
   ICloudSyncCheckServerStatusPostData,
@@ -91,13 +91,11 @@ import { CloudSyncFlowManagerLock } from './CloudSyncFlowManager/CloudSyncFlowMa
 import { CloudSyncFlowManagerMarketWatchList } from './CloudSyncFlowManager/CloudSyncFlowManagerMarketWatchList';
 import { CloudSyncFlowManagerWallet } from './CloudSyncFlowManager/CloudSyncFlowManagerWallet';
 import cloudSyncItemBuilder from './cloudSyncItemBuilder';
-
 // Keyless backend API is not available yet; use mock storage for Keyless mode.
 import { keylessMockApi } from './keylessCloudSyncMockApi';
 import {
   buildKeylessSignatureHeader,
   computeDataHash,
-  computeKeylessPwdHash,
   deriveKeylessCredential,
   isKeylessPwdHash,
 } from './keylessCloudSyncUtils';

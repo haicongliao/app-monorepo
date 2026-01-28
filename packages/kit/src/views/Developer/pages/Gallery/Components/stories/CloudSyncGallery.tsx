@@ -103,6 +103,7 @@ export function CloudSyncApiTests() {
 
         <XStack gap="$2" flexWrap="wrap">
           <Button
+            onPressLoadingEnabled
             onPress={() =>
               handleApiCall(async () => {
                 await backgroundApiProxy.servicePassword.promptPasswordVerify();

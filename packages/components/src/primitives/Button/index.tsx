@@ -1,5 +1,5 @@
 import type { ButtonHTMLAttributes } from 'react';
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 
 import {
   type ColorTokens,
@@ -18,6 +18,7 @@ import { Spinner } from '../Spinner';
 import { useSharedPress } from './useEvent';
 
 import type { IIconProps, IKeyOfIcons } from '../Icon';
+import type { GestureResponderEvent } from 'react-native';
 
 export interface IButtonProps extends ThemeableStackProps {
   type?: ButtonHTMLAttributes<HTMLButtonElement>['type'];
@@ -33,6 +34,12 @@ export interface IButtonProps extends ThemeableStackProps {
   iconAfter?: IKeyOfIcons;
   disabled?: boolean;
   loading?: boolean;
+  onPressLoadingEnabled?: boolean;
+  onPress:
+    | ((
+        e: GestureResponderEvent,
+      ) => void | undefined | Promise<undefined | void>)
+    | undefined;
   children?: React.ReactNode;
   color?: ColorTokens;
   iconColor?: ColorTokens;
@@ -218,28 +225,51 @@ const ButtonComponent = ButtonFrame.styleable<IButtonProps, any, any>(
       iconAfter,
       disabled,
       loading,
+      onPressLoadingEnabled,
       children,
       color: outerColor,
       iconColor: outerIconColor,
       variant = 'secondary',
       childrenAsText = true,
       textEllipsis,
+      onPress,
       ...rest
     } = useProps(props, {});
 
     const { py, px, textVariant } = useSizeStyles(size);
+    const [internalLoading, setInternalLoading] = useState(false);
+
+    const isLoading = loading || internalLoading;
 
     const { sharedFrameStyles, iconColor, color } = getSharedButtonStyles({
       variant,
       disabled,
-      loading,
+      loading: isLoading,
     }) as {
       sharedFrameStyles: ISharedFrameStylesProps;
       iconColor: ColorTokens;
       color: ColorTokens;
     };
 
-    const { onPress, onLongPress } = useSharedPress(rest);
+    const { onLongPress } = useSharedPress({
+      ...rest,
+      onPress,
+    });
+
+    const handlePressWithLoading = useMemo(() => {
+      if (!onPressLoadingEnabled || !onPress) {
+        return onPress;
+      }
+
+      return async (event: any) => {
+        try {
+          setInternalLoading(true);
+          await onPress(event);
+        } finally {
+          setInternalLoading(false);
+        }
+      };
+    }, [onPressLoadingEnabled, onPress]);
 
     return (
       <ButtonFrame
@@ -249,8 +279,8 @@ const ButtonComponent = ButtonFrame.styleable<IButtonProps, any, any>(
         py={variant === 'tertiary' ? '$1' : py}
         px={variant === 'tertiary' ? '$2' : px}
         borderCurve="continuous"
-        disabled={!!disabled || !!loading}
-        aria-disabled={!!disabled || !!loading}
+        disabled={!!disabled || !!isLoading}
+        aria-disabled={!!disabled || !!isLoading}
         {...sharedFrameStyles}
         hoverStyle={{
           ...sharedFrameStyles.hoverStyle,
@@ -265,10 +295,10 @@ const ButtonComponent = ButtonFrame.styleable<IButtonProps, any, any>(
           ...props.pressStyle,
         }}
         {...rest}
-        onPress={onPress}
+        onPress={handlePressWithLoading}
         onLongPress={onLongPress}
       >
-        {icon && !loading ? (
+        {icon && !isLoading ? (
           <ButtonIcon
             name={icon}
             size={size}
@@ -276,7 +306,7 @@ const ButtonComponent = ButtonFrame.styleable<IButtonProps, any, any>(
             color={outerIconColor || iconColor}
           />
         ) : null}
-        {loading ? (
+        {isLoading ? (
           <Spinner size="small" mr="$2" color={outerIconColor || iconColor} />
         ) : null}
         {childrenAsText ? (
