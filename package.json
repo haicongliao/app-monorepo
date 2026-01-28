@@ -77,7 +77,9 @@
     "app:desktop:op": "yarn op yarn app:desktop",
     "app:ios:op": "yarn op yarn app:ios",
     "app:android:op": "yarn op yarn app:android",
-    "app:native-bundle:op": "yarn op yarn app:native-bundle"
+    "app:native-bundle:op": "yarn op yarn app:native-bundle",
+    "keyless:mock-server:build": "yarn workspace @onekeyhq/kit-bg keyless:mock-server:build",
+    "keyless:mock-server:start": "yarn keyless:mock-server:build && node packages/kit-bg/dist/keyless-cloud-sync-mock-server/cli.js"
   },
   "dependencies": {
     "@aivenio/tsc-output-parser": "^2.1.1",

@@ -35,11 +35,7 @@ export interface IButtonProps extends ThemeableStackProps {
   disabled?: boolean;
   loading?: boolean;
   onPressLoadingEnabled?: boolean;
-  onPress:
-    | ((
-        e: GestureResponderEvent,
-      ) => void | undefined | Promise<undefined | void>)
-    | undefined;
+
   children?: React.ReactNode;
   color?: ColorTokens;
   iconColor?: ColorTokens;
@@ -264,6 +260,7 @@ const ButtonComponent = ButtonFrame.styleable<IButtonProps, any, any>(
       return async (event: any) => {
         try {
           setInternalLoading(true);
+          // eslint-disable-next-line @typescript-eslint/await-thenable
           await onPress(event);
         } finally {
           setInternalLoading(false);
