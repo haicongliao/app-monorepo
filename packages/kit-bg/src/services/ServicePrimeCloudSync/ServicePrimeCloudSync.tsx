@@ -93,12 +93,7 @@ import { CloudSyncFlowManagerWallet } from './CloudSyncFlowManager/CloudSyncFlow
 import cloudSyncItemBuilder from './cloudSyncItemBuilder';
 // Keyless backend API is not available yet; use mock storage for Keyless mode.
 import { keylessMockApi } from './keylessCloudSyncMockApi';
-import {
-  buildKeylessSignatureHeader,
-  computeDataHash,
-  deriveKeylessCredential,
-  isKeylessPwdHash,
-} from './keylessCloudSyncUtils';
+import keylessCloudSyncUtils from './keylessCloudSyncUtils';
 
 import type { RealmSchemaCloudSyncItem } from '../../dbs/local/realm/schemas/RealmSchemaCloudSyncItem';
 import type { IPrimeCloudSyncPersistAtomData } from '../../states/jotai/atoms';
@@ -185,11 +180,12 @@ class ServicePrimeCloudSync extends ServiceBase {
     }
 
     try {
-      const keylessCredential = await deriveKeylessCredential({
-        hdCredential: credential.credential,
-        password,
-        keylessWalletId: keylessWallet.id,
-      });
+      const keylessCredential =
+        await keylessCloudSyncUtils.deriveKeylessCredential({
+          hdCredential: credential.credential,
+          password,
+          keylessWalletId: keylessWallet.id,
+        });
 
       this.keylessCredentialCache = keylessCredential;
       return keylessCredential;
@@ -258,12 +254,15 @@ class ServicePrimeCloudSync extends ServiceBase {
       return null;
     }
 
-    const signatureHeader = await buildKeylessSignatureHeader({
-      signingPrivateKey: keylessCredential.signingPrivateKey,
-      signingPublicKey: keylessCredential.signingPublicKey,
-      password,
-      dataHash: computeDataHash(stringUtils.stableStringify(postData)),
-    });
+    const signatureHeader =
+      await keylessCloudSyncUtils.buildKeylessSignatureHeader({
+        signingPrivateKey: keylessCredential.signingPrivateKey,
+        signingPublicKey: keylessCredential.signingPublicKey,
+        password,
+        dataHash: keylessCloudSyncUtils.computeDataHash(
+          stringUtils.stableStringify(postData),
+        ),
+      });
     return {
       publicKey: keylessCredential.signingPublicKey,
       signatureHeader,
@@ -2336,7 +2335,7 @@ class ServicePrimeCloudSync extends ServiceBase {
     // Skip Lock items with keyless pwdHash
     if (
       localItem.dataType === EPrimeCloudSyncDataType.Lock &&
-      isKeylessPwdHash(localItem.pwdHash)
+      keylessCloudSyncUtils.isKeylessPwdHash(localItem.pwdHash)
     ) {
       return null;
     }
@@ -2361,13 +2360,13 @@ class ServicePrimeCloudSync extends ServiceBase {
     shouldDecrypt?: boolean; // decrypt the data to rawDataJson
     syncCredential: ICloudSyncCredential | undefined;
     serverPwdHash: string;
-  }): Promise<IDBCloudSyncItem | null> {
+  }): Promise<IDBCloudSyncItem> {
     // Skip Lock items with keyless pwdHash
     if (
       serverItem.dataType === EPrimeCloudSyncDataType.Lock &&
-      isKeylessPwdHash(serverItem.pwdHash)
+      keylessCloudSyncUtils.isKeylessPwdHash(serverItem.pwdHash)
     ) {
-      return null;
+      throw new OneKeyError('Lock item not support for keyless mode');
     }
     const localItem: IDBCloudSyncItem = {
       id: serverItem.key,

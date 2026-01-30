@@ -1,17 +1,19 @@
 /**
  * Keyless Cloud Sync Constants
  *
- * Keyless-specific derivation paths (BIP44 coin type 1919 = OneKey custom)
+ * Keyless-specific derivation paths
  */
 
 /** Keyless sync derivation path prefix */
-export const KEYLESS_SYNC_DERIVATION_PATH_PREFIX = "m/44'/1919'/0'";
+export const KEYLESS_SYNC_DERIVATION_PATH_PREFIX = "m/44'/38716591'/98351420'";
 
 /** Keyless signing key derivation path */
-export const KEYLESS_SYNC_DERIVATION_PATH_SIGNING = "m/44'/1919'/0'/0/0";
+export const KEYLESS_SYNC_DERIVATION_PATH_SIGNING =
+  "m/44'/38716591'/98351420'/0/0";
 
 /** Keyless encryption key derivation path */
-export const KEYLESS_SYNC_DERIVATION_PATH_ENCRYPTION = "m/44'/1919'/0'/0/1";
+export const KEYLESS_SYNC_DERIVATION_PATH_ENCRYPTION =
+  "m/44'/38716591'/98351420'/0/1";
 
 /** HTTP Header name for Keyless signature */
 export const KEYLESS_SYNC_SIGNATURE_HEADER = 'X-Keyless-Sync-Signature';

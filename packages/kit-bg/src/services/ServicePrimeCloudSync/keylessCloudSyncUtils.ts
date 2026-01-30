@@ -5,9 +5,6 @@
  * Uses the unique Keyless wallet mnemonic to derive keys for operations.
  */
 
-import { sha256 } from '@noble/hashes/sha256';
-import { sha512 } from '@noble/hashes/sha512';
-
 import {
   batchGetPrivateKeys,
   decryptStringAsync,
@@ -27,7 +24,9 @@ import {
   KEYLESS_SYNC_ENCRYPTION_CONTEXT,
 } from '@onekeyhq/shared/src/consts/keylessCloudSyncConsts';
 import { OneKeyLocalError } from '@onekeyhq/shared/src/errors';
+import appCrypto from '@onekeyhq/shared/src/appCrypto';
 import bufferUtils from '@onekeyhq/shared/src/utils/bufferUtils';
+import stringUtils from '@onekeyhq/shared/src/utils/stringUtils';
 import type {
   IKeylessCloudSyncCredential,
   IKeylessCloudSyncSignMessage,
@@ -42,10 +41,12 @@ import type {
  * @param encryptionKey - Keyless encryption key (hex string)
  * @returns pwdHash string with 'keyless-' prefix
  */
-export function computeKeylessPwdHash(encryptionKey: string): string {
+function computeKeylessPwdHash(encryptionKey: string): string {
   const context: string = KEYLESS_PWDHASH_CONTEXT;
   const hashInput = `${context}:${encryptionKey}`;
-  const hash = sha512(bufferUtils.toBuffer(hashInput, 'utf8'));
+  const hash = appCrypto.hash.sha512Sync(
+    bufferUtils.toBuffer(hashInput, 'utf8'),
+  );
   const prefix: string = KEYLESS_PWDHASH_PREFIX;
   return `${prefix}${bufferUtils.bytesToHex(hash)}`;
 }
@@ -56,7 +57,7 @@ export function computeKeylessPwdHash(encryptionKey: string): string {
  * @param pwdHash - pwdHash string to check
  * @returns true if pwdHash starts with 'keyless-' prefix
  */
-export function isKeylessPwdHash(pwdHash: string): boolean {
+function isKeylessPwdHash(pwdHash: string): boolean {
   return pwdHash.startsWith(KEYLESS_PWDHASH_PREFIX);
 }
 
@@ -68,7 +69,7 @@ export function isKeylessPwdHash(pwdHash: string): boolean {
  * @param keylessWalletId - Keyless wallet ID
  * @returns Keyless sync credentials containing signing and encryption keys
  */
-export async function deriveKeylessCredential({
+async function deriveKeylessCredential({
   hdCredential,
   password,
   keylessWalletId,
@@ -83,7 +84,7 @@ export async function deriveKeylessCredential({
     'secp256k1',
     hdCredential,
     password,
-    KEYLESS_SYNC_DERIVATION_PATH_PREFIX, // "m/44'/1919'/0'"
+    KEYLESS_SYNC_DERIVATION_PATH_PREFIX, // "m/44'/38716591'/98351420'"
     ['0/0', '0/1'],
   );
 
@@ -132,7 +133,7 @@ export async function deriveKeylessCredential({
  * @param encryptionKey - Encryption key (hex)
  * @returns Encrypted data (hex string)
  */
-export async function encryptWithKeylessKey({
+async function encryptWithKeylessKey({
   rawData,
   encryptionKey,
 }: {
@@ -156,7 +157,7 @@ export async function encryptWithKeylessKey({
  * @param encryptionKey - Encryption key (hex)
  * @returns Decrypted raw data (UTF8 string)
  */
-export async function decryptWithKeylessKey({
+async function decryptWithKeylessKey({
   encryptedData,
   encryptionKey,
 }: {
@@ -198,7 +199,7 @@ function generateNonce(): string {
  * @param dataHash - Data hash to include when uploading (optional)
  * @returns Base64 encoded signature Header value
  */
-export async function buildKeylessSignatureHeader({
+async function buildKeylessSignatureHeader({
   signingPrivateKey,
   signingPublicKey,
   password,
@@ -220,8 +221,11 @@ export async function buildKeylessSignatureHeader({
   };
 
   // Compute message hash
-  const messageString = JSON.stringify(signMessage);
-  const messageHash = sha256(bufferUtils.toBuffer(messageString, 'utf8'));
+  // Use stableStringify to ensure consistent serialization regardless of property order
+  const messageString = stringUtils.stableStringify(signMessage);
+  const messageHash = appCrypto.hash.sha256Sync(
+    bufferUtils.toBuffer(messageString, 'utf8'),
+  );
 
   // Encrypt private key before signing (sign function expects encrypted key)
   const encryptedPrivateKey = await encryptAsync({
@@ -247,7 +251,7 @@ export async function buildKeylessSignatureHeader({
 
   // Base64 encode
   return bufferUtils.bytesToBase64(
-    bufferUtils.toBuffer(JSON.stringify(headerPayload), 'utf8'),
+    bufferUtils.toBuffer(stringUtils.stableStringify(headerPayload), 'utf8'),
   );
 }
 
@@ -257,8 +261,8 @@ export async function buildKeylessSignatureHeader({
  * @param data - Data to hash
  * @returns Hash value (hex string)
  */
-export function computeDataHash(data: string): string {
-  const hash = sha256(bufferUtils.toBuffer(data, 'utf8'));
+function computeDataHash(data: string): string {
+  const hash = appCrypto.hash.sha256Sync(bufferUtils.toBuffer(data, 'utf8'));
   return bufferUtils.bytesToHex(hash);
 }
 
@@ -268,7 +272,7 @@ export function computeDataHash(data: string): string {
  * @param signatureHeader - Base64 encoded signature Header
  * @returns Parsed signature payload
  */
-export function parseSignatureHeader(
+function parseSignatureHeader(
   signatureHeader: string,
 ): IKeylessCloudSyncSignaturePayload | null {
   try {
@@ -280,3 +284,14 @@ export function parseSignatureHeader(
     return null;
   }
 }
+
+export default {
+  computeKeylessPwdHash,
+  isKeylessPwdHash,
+  deriveKeylessCredential,
+  encryptWithKeylessKey,
+  decryptWithKeylessKey,
+  buildKeylessSignatureHeader,
+  computeDataHash,
+  parseSignatureHeader,
+};

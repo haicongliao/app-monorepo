@@ -69,6 +69,7 @@ OneKey is an open-source multi-chain crypto wallet with a monorepo architecture 
 - ❌ **NEVER** modify auto-generated files (`translations.ts`, locale JSON files)
 - ❌ **NEVER** bypass TypeScript types with `any` or `@ts-ignore` without documented justification
 - ❌ **NEVER** commit code that fails linting or TypeScript compilation
+- ❌ **NEVER** use `JSON.stringify()` for cryptographic operations → ALWAYS use `stringUtils.stableStringify()` for deterministic serialization when computing hashes or signatures
 
 ## Git Basics
 

@@ -24,11 +24,7 @@ import type {
   ICloudSyncRawDataJson,
 } from '@onekeyhq/shared/types/prime/primeCloudSyncTypes';
 
-import {
-  decryptWithKeylessKey,
-  encryptWithKeylessKey,
-  isKeylessPwdHash,
-} from './keylessCloudSyncUtils';
+import keylessCloudSyncUtils from './keylessCloudSyncUtils';
 
 import type {
   IDBCloudSyncItem,
@@ -50,7 +46,7 @@ class CloudSyncItemBuilder {
     const { keylessCredential } = syncCredential;
     if (keylessCredential) {
       // pwdHash is precomputed in deriveKeylessCredential
-      return keylessCredential.pwdHash;
+      return keylessCredential.pwdHash || '';
     }
 
     // Fallback to OneKey ID mode
@@ -213,7 +209,7 @@ class CloudSyncItemBuilder {
       const { keylessCredential } = syncCredential;
       // Use keyless encryption if keylessCredential is available
       if (keylessCredential) {
-        encryptedData = await encryptWithKeylessKey({
+        encryptedData = await keylessCloudSyncUtils.encryptWithKeylessKey({
           rawData,
           encryptionKey: keylessCredential.encryptionKey,
         });
@@ -251,12 +247,17 @@ class CloudSyncItemBuilder {
 
     if (syncCredential && item.data) {
       let decryptedData: string | undefined;
+      const credentialPwdHash: string | undefined =
+        this.getPwdHash(syncCredential);
 
       // Determine decryption method based on pwdHash prefix
-      if (isKeylessPwdHash(item.pwdHash) && syncCredential.keylessCredential) {
+      if (
+        keylessCloudSyncUtils.isKeylessPwdHash(item.pwdHash) &&
+        syncCredential.keylessCredential
+      ) {
         // Keyless decryption
         try {
-          decryptedData = await decryptWithKeylessKey({
+          decryptedData = await keylessCloudSyncUtils.decryptWithKeylessKey({
             encryptedData: item.data,
             encryptionKey: syncCredential.keylessCredential.encryptionKey,
           });
@@ -264,7 +265,7 @@ class CloudSyncItemBuilder {
           console.error('decryptSyncItem keyless decrypt error', error, item);
           throw new IncorrectMasterPassword();
         }
-      } else if (!isKeylessPwdHash(item.pwdHash)) {
+      } else if (!keylessCloudSyncUtils.isKeylessPwdHash(item.pwdHash)) {
         // OneKey ID decryption
         let credentialToUse = syncCredential;
         if (item.dataType === EPrimeCloudSyncDataType.Lock) {
@@ -296,7 +297,9 @@ class CloudSyncItemBuilder {
 
       try {
         if (decryptedData) {
+          // eslint-disable-next-line @typescript-eslint/no-unsafe-return
           rawDataJson = JSON.parse(decryptedData) as ICloudSyncRawDataJson;
+          item.pwdHash = credentialPwdHash || '';
         }
       } catch (error) {
         console.error('decryptSyncItem jsonParse error', error, item);
