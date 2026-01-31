@@ -100,7 +100,10 @@ import type {
   IDeviceVersionCacheInfo,
   IOneKeyDeviceFeatures,
 } from '@onekeyhq/shared/types/device';
-import type { ICloudSyncKeyInfoWallet } from '@onekeyhq/shared/types/prime/primeCloudSyncTypes';
+import type {
+  ICloudSyncKeyInfoWallet,
+  IExistingSyncItemsInfo,
+} from '@onekeyhq/shared/types/prime/primeCloudSyncTypes';
 import type {
   ICreateConnectedSiteParams,
   ICreateSignedMessageParams,
@@ -1532,7 +1535,17 @@ export abstract class LocalDbBase extends LocalDbBaseContainer {
     const syncManager =
       this.backgroundApi?.servicePrimeCloudSync.syncManagers.indexedAccount;
 
-    const syncItemsInfo = await syncManager.buildExistingSyncItemsInfo({
+    let syncItemsInfo:
+      | {
+          existingSyncItemsInfo: IExistingSyncItemsInfo<EPrimeCloudSyncDataType.IndexedAccount>;
+          existingSyncItems: IDBCloudSyncItem[];
+          newSyncItems: IDBCloudSyncItem[];
+        }
+      | undefined;
+
+    const buildSyncItemsStartTime = Date.now();
+    // eslint-disable-next-line prefer-const
+    syncItemsInfo = await syncManager.buildExistingSyncItemsInfo({
       tx,
       targets: indexedAccountsToAdd.map((indexedAccount) => ({
         targetId: indexedAccount.id,
@@ -1564,11 +1577,23 @@ export abstract class LocalDbBase extends LocalDbBaseContainer {
         );
       },
     });
+    const buildSyncItemsDuration = Date.now() - buildSyncItemsStartTime;
+    if (buildSyncItemsDuration > 600) {
+      void this.backgroundApi.serviceApp.showToast({
+        method: 'error',
+        title: `buildExistingSyncItemsInfo took too long: ${buildSyncItemsDuration}ms`,
+      });
+    }
+    console.log(
+      `CloudSyncTookTime:: buildExistingSyncItemsInfo ${buildSyncItemsDuration.toFixed(
+        2,
+      )}ms`,
+    );
 
     await syncManager.txWithSyncFlowOfDBRecordCreating({
       tx,
-      newSyncItems: syncItemsInfo.newSyncItems,
-      existingSyncItems: syncItemsInfo.existingSyncItems,
+      newSyncItems: syncItemsInfo?.newSyncItems || [],
+      existingSyncItems: syncItemsInfo?.existingSyncItems || [],
       runDbTxFn: async () => {
         await this.txAddRecords({
           tx,
@@ -2007,6 +2032,7 @@ export abstract class LocalDbBase extends LocalDbBaseContainer {
       walletXfp,
       isKeylessWallet,
       keylessDetailsInfo,
+      skipAddHDNextIndexedAccount,
     } = params;
     const context = await this.getContext({ verifyPassword: password });
     let walletId = accountUtils.buildHdWalletId({
@@ -2031,6 +2057,7 @@ export abstract class LocalDbBase extends LocalDbBaseContainer {
 
     const firstAccountIndex = 0;
 
+    // eslint-disable-next-line prefer-const
     let addedHdAccountIndex = -1;
 
     let currentWalletToCreate: IDBWallet | undefined;
@@ -2151,14 +2178,16 @@ export abstract class LocalDbBase extends LocalDbBaseContainer {
           });
 
           // add first indexed account
-          console.log('add first indexed account');
-          const { nextIndex } = await this.txAddHDNextIndexedAccount({
-            tx,
-            walletId,
-            onlyAddFirst: true,
-            skipServerSyncFlow: false,
-          });
-          addedHdAccountIndex = nextIndex;
+          if (!skipAddHDNextIndexedAccount) {
+            console.log('add first indexed account');
+            const { nextIndex } = await this.txAddHDNextIndexedAccount({
+              tx,
+              walletId,
+              onlyAddFirst: true,
+              skipServerSyncFlow: false,
+            });
+            addedHdAccountIndex = nextIndex;
+          }
 
           // increase nextHD
           console.log('increase nextHD');

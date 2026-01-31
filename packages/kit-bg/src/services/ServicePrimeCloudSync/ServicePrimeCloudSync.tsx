@@ -1548,12 +1548,27 @@ class ServicePrimeCloudSync extends ServiceBase {
   }
 
   async isCloudSyncIsAvailable() {
+    const now = Date.now();
     try {
       await this.ensureCloudSyncIsAvailable();
       return true;
     } catch (error) {
       errorUtils.autoPrintErrorIgnore(error);
       return false;
+    } finally {
+      const endTime = Date.now();
+      const duration = endTime - now;
+      if (process.env.NODE_ENV !== 'production') {
+        if (duration > 600) {
+          void this.backgroundApi.serviceApp.showToast({
+            method: 'error',
+            title: `isCloudSyncIsAvailable took too long: ${duration}ms`,
+          });
+        }
+      }
+      console.log(
+        `CloudSyncTookTime:: ServicePrimeCloudSync.isCloudSyncIsAvailable() ${duration}ms`,
+      );
     }
   }
 
@@ -1675,11 +1690,28 @@ class ServicePrimeCloudSync extends ServiceBase {
 
   @backgroundMethod()
   async getSyncCredentialSafe(): Promise<ICloudSyncCredential | undefined> {
+    const now = Date.now();
     try {
-      return await this.getSyncCredentialWithCache();
+      const result = await this.getSyncCredentialWithCache();
+      return result;
     } catch (error) {
       errorUtils.autoPrintErrorIgnore(error);
       return undefined;
+    } finally {
+      const endTime = Date.now();
+      const duration = endTime - now;
+      if (process.env.NODE_ENV !== 'production') {
+        if (duration > 600) {
+          void this.backgroundApi.serviceApp.showToast({
+            method: 'error',
+            title: `getSyncCredentialSafe took too long: ${duration}ms`,
+            message: `ServicePrimeCloudSync.getSyncCredentialSafe() took ${duration}ms`,
+          });
+        }
+      }
+      console.log(
+        `CloudSyncTookTime:: ServicePrimeCloudSync.getSyncCredentialSafe() ${duration}ms`,
+      );
     }
   }
 
@@ -1688,6 +1720,7 @@ class ServicePrimeCloudSync extends ServiceBase {
     async (): Promise<ICloudSyncCredential> => {
       const password =
         await this.backgroundApi.servicePassword.getCachedPassword();
+
       if (!password) {
         throw new OneKeyError('No password in memory');
       }
