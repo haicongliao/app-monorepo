@@ -480,9 +480,9 @@ export function useKeylessWallet() {
                   }),
                 });
                 // TODO coreApi stringify ERROR
-                void actions.current.createKeylessWallet({
-                  packSetId: restoredPacks?.packs?.deviceKeyPack?.packSetId,
-                });
+                // void actions.current.createKeylessWallet({
+                //   packSetId: restoredPacks?.packs?.deviceKeyPack?.packSetId,
+                // });
               } else {
                 navigation.navigate(ERootRoutes.Onboarding, {
                   screen: EOnboardingV2Routes.OnboardingV2,
@@ -523,7 +523,6 @@ export function useKeylessWallet() {
       });
     },
     [
-      actions,
       enableKeylessWalletSilentlyFn,
       intl,
       isSupportCloudBackup,
