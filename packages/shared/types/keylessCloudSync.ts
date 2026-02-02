@@ -37,14 +37,17 @@ export interface IKeylessCloudSyncSignaturePayload {
 
 /**
  * Signature message body (raw data before signing)
+ *
+ * IMPORTANT: dataHash is REQUIRED to bind the signature to specific request data,
+ * preventing request tampering and replay attacks with modified payloads.
  */
 export interface IKeylessCloudSyncSignMessage {
   /** Timestamp */
   timestamp: number;
   /** Anti-replay nonce */
   nonce: string;
-  /** Data hash included when uploading */
-  dataHash?: string;
+  /** SHA256 hash of request data (REQUIRED for security) */
+  dataHash: string;
 }
 
 /**

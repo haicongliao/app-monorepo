@@ -193,10 +193,13 @@ function generateNonce(): string {
 /**
  * Sign message and build Header content
  *
+ * IMPORTANT: dataHash MUST be provided for all requests to ensure signature
+ * is bound to the specific request payload and prevent tampering/replay attacks.
+ *
  * @param signingPrivateKey - Signing private key (decrypted, hex format)
  * @param signingPublicKey - Signing public key (hex)
  * @param password - Wallet password (for encrypting private key before signing)
- * @param dataHash - Data hash to include when uploading (optional)
+ * @param dataHash - SHA256 hash of request data (REQUIRED for security)
  * @returns Base64 encoded signature Header value
  */
 async function buildKeylessSignatureHeader({
@@ -208,16 +211,16 @@ async function buildKeylessSignatureHeader({
   signingPrivateKey: string;
   signingPublicKey: string;
   password: string;
-  dataHash?: string;
+  dataHash: string; // REQUIRED - not optional!
 }): Promise<string> {
   const timestamp = Date.now();
   const nonce = generateNonce();
 
-  // Construct sign message
+  // Construct sign message with dataHash to bind signature to request data
   const signMessage: IKeylessCloudSyncSignMessage = {
     timestamp,
     nonce,
-    ...(dataHash ? { dataHash } : {}),
+    dataHash,
   };
 
   // Compute message hash

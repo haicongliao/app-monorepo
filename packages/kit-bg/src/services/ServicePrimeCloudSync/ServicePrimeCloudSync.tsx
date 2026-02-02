@@ -237,7 +237,6 @@ class ServicePrimeCloudSync extends ServiceBase {
 
     return keylessMockApi.checkStatus({
       client,
-      publicKey: auth.publicKey,
       signatureHeader: auth.signatureHeader,
       postData,
     });
@@ -259,7 +258,6 @@ class ServicePrimeCloudSync extends ServiceBase {
 
     return keylessMockApi.download({
       client,
-      publicKey: auth?.publicKey,
       signatureHeader: auth?.signatureHeader,
       postData,
     });
@@ -281,7 +279,6 @@ class ServicePrimeCloudSync extends ServiceBase {
 
     const result = await keylessMockApi.upload({
       client,
-      publicKey: auth.publicKey,
       signatureHeader: auth.signatureHeader,
       postData,
     });

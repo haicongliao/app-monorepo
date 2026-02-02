@@ -21,7 +21,79 @@ export type IKeylessCloudSyncMockServerOptions = {
 const DEFAULT_HOST = '127.0.0.1';
 const DEFAULT_PORT = 17_921;
 
+// Replay attack protection
+const TIMESTAMP_TOLERANCE_MS = 5 * 60 * 1000; // 5 minutes
+const usedNonces = new Map<string, number>(); // nonce -> timestamp
+
 const store = new KeylessCloudSyncMockStore();
+
+/**
+ * Clean up expired nonces (older than TIMESTAMP_TOLERANCE_MS)
+ */
+const cleanupExpiredNonces = (): void => {
+  const now = Date.now();
+  const expiredNonces: string[] = [];
+
+  for (const [nonce, timestamp] of usedNonces.entries()) {
+    if (now - timestamp > TIMESTAMP_TOLERANCE_MS) {
+      expiredNonces.push(nonce);
+    }
+  }
+
+  for (const nonce of expiredNonces) {
+    usedNonces.delete(nonce);
+  }
+
+  // Expired nonces cleaned up silently
+};
+
+/**
+ * Verify timestamp and nonce to prevent replay attacks
+ *
+ * @returns true if valid, error message if invalid
+ */
+const verifyTimestampAndNonce = (
+  timestamp: number,
+  nonce: string,
+): { valid: boolean; error?: string } => {
+  const now = Date.now();
+
+  // Check timestamp is within acceptable range
+  const timeDiff = Math.abs(now - timestamp);
+  if (timeDiff > TIMESTAMP_TOLERANCE_MS) {
+    return {
+      valid: false,
+      error: `Timestamp out of range: ${timeDiff}ms (max: ${TIMESTAMP_TOLERANCE_MS}ms)`,
+    };
+  }
+
+  // Check timestamp is not from the future (with small tolerance for clock skew)
+  const CLOCK_SKEW_TOLERANCE_MS = 60 * 1000; // 1 minute
+  if (timestamp > now + CLOCK_SKEW_TOLERANCE_MS) {
+    return {
+      valid: false,
+      error: `Timestamp is from the future: ${timestamp - now}ms ahead`,
+    };
+  }
+
+  // Check nonce hasn't been used before
+  if (usedNonces.has(nonce)) {
+    return {
+      valid: false,
+      error: `Nonce has already been used: ${nonce}`,
+    };
+  }
+
+  // Record this nonce as used
+  usedNonces.set(nonce, timestamp);
+
+  // Periodically clean up expired nonces
+  if (usedNonces.size % 100 === 0) {
+    cleanupExpiredNonces();
+  }
+
+  return { valid: true };
+};
 
 const getHeaderValue = (
   req: http.IncomingMessage,
@@ -89,6 +161,10 @@ const computeDataHash = (data: string): string => {
 
 /**
  * Verify signature using secp256k1
+ *
+ * IMPORTANT: dataHash is REQUIRED for all endpoints to prevent request tampering.
+ * Never make dataHash optional in production - it ensures the signature is bound
+ * to the specific request data and prevents replay attacks with modified payloads.
  */
 const verifySignature = async ({
   publicKey,
@@ -101,42 +177,54 @@ const verifySignature = async ({
   signature: string;
   timestamp: number;
   nonce: string;
-  dataHash?: string;
-}): Promise<boolean> => {
+  dataHash: string; // REQUIRED - not optional!
+}): Promise<{ valid: boolean; error?: string }> => {
   try {
-    // Reconstruct the sign message (same as client-side buildKeylessSignatureHeader)
-    const signMessage: {
-      timestamp: number;
-      nonce: string;
-      dataHash?: string;
-    } = {
+    // Step 1: Verify timestamp and nonce to prevent replay attacks
+    const replayCheck = verifyTimestampAndNonce(timestamp, nonce);
+    if (!replayCheck.valid) {
+      console.warn('[MockServer] Replay attack detected:', replayCheck.error);
+      return { valid: false, error: replayCheck.error };
+    }
+
+    // Step 2: Reconstruct the sign message (same as client-side buildKeylessSignatureHeader)
+    // dataHash MUST be included to bind signature to specific request data
+    const signMessage = {
       timestamp,
       nonce,
-      ...(dataHash ? { dataHash } : {}),
+      dataHash,
     };
 
     // Use stableStringify for deterministic serialization
     const messageString = stableStringify(signMessage);
 
-    // Compute SHA256 hash
+    // Step 3: Compute SHA256 hash
     const messageHash = crypto
       .createHash('sha256')
       .update(messageString, 'utf8')
       .digest();
 
-    // Verify signature using secp256k1
+    // Client signature is 65 bytes (r + s + recoveryParam)
+    // @noble/secp256k1.verify expects 64 bytes (r + s only)
+    // Remove the last byte (recoveryParam) from the hex signature
+    const signature64Bytes =
+      signature.length === 130 ? signature.slice(0, 128) : signature;
+
+    // Step 4: Verify signature using secp256k1
+    // @noble/secp256k1 v1.7.1 expects: verify(signature, messageHash, publicKey)
+    // All parameters can be hex strings or Uint8Array
     const isValid = secp256k1.verify(
-      signature,
-      messageHash,
+      signature64Bytes,
+      messageHash.toString('hex'),
       publicKey,
       // Use strict: false to allow non-strict DER signatures
       { strict: false },
     );
 
-    return isValid;
+    return { valid: isValid };
   } catch (error) {
     console.error('[MockServer] Signature verification error:', error);
-    return false;
+    return { valid: false, error: String(error) };
   }
 };
 
@@ -149,8 +237,7 @@ const sendJson = <T>(
     'Content-Type': 'application/json',
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-    'Access-Control-Allow-Headers':
-      'Content-Type, x-keyless-public-key, x-keyless-sync-signature',
+    'Access-Control-Allow-Headers': 'Content-Type, x-keyless-sync-signature',
   });
   res.end(JSON.stringify(payload));
 };
@@ -171,7 +258,7 @@ export const startKeylessCloudSyncMockServer = (
           'Access-Control-Allow-Origin': '*',
           'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
           'Access-Control-Allow-Headers':
-            'Content-Type, x-keyless-public-key, x-keyless-sync-signature',
+            'Content-Type, x-keyless-sync-signature',
           'Access-Control-Max-Age': '86400', // 24 hours
         });
         res.end();
@@ -192,17 +279,10 @@ export const startKeylessCloudSyncMockServer = (
         return;
       }
 
-      const publicKey = getHeaderValue(req, 'x-keyless-public-key');
       const signatureHeader = getHeaderValue(req, 'x-keyless-sync-signature');
 
-      if (!publicKey) {
-        sendJson(res, 400, {
-          code: 400,
-          message: 'Missing x-keyless-public-key header',
-          data: null as unknown as null,
-        });
-        return;
-      }
+      // No need for separate x-keyless-public-key header
+      // publicKey is included in the signature header payload
 
       if (url === '/prime/v1/sync/upload-keyless') {
         const body = (await readJsonBody(req)) as ICloudSyncUploadPostData;
@@ -232,7 +312,7 @@ export const startKeylessCloudSyncMockServer = (
         const dataHash = computeDataHash(postDataString);
 
         // Verify signature with dataHash
-        const isValid = await verifySignature({
+        const verifyResult = await verifySignature({
           publicKey: signaturePayload.publicKey,
           signature: signaturePayload.signature,
           timestamp: signaturePayload.timestamp,
@@ -240,27 +320,18 @@ export const startKeylessCloudSyncMockServer = (
           dataHash,
         });
 
-        if (!isValid) {
+        if (!verifyResult.valid) {
           sendJson(res, 401, {
             code: 401,
-            message: 'Invalid signature',
+            message: verifyResult.error || 'Invalid signature',
             data: null as unknown as null,
           });
           return;
         }
 
-        // Verify publicKey matches
-        if (signaturePayload.publicKey !== publicKey) {
-          sendJson(res, 401, {
-            code: 401,
-            message: 'Public key mismatch',
-            data: null as unknown as null,
-          });
-          return;
-        }
-
+        // Upload data using publicKey from signature payload
         const result = await store.upload({
-          publicKey,
+          publicKey: signaturePayload.publicKey,
           postData: body,
         });
         sendJson(res, 200, { code: 0, message: 'ok', data: result });
@@ -292,35 +363,31 @@ export const startKeylessCloudSyncMockServer = (
           return;
         }
 
-        // Verify signature (no dataHash for checkStatus)
-        const isValid = await verifySignature({
+        // Compute dataHash from postData (same as client)
+        const postDataString = stableStringify(body);
+        const dataHash = computeDataHash(postDataString);
+
+        // Verify signature (with dataHash to match client behavior)
+        const verifyResult = await verifySignature({
           publicKey: signaturePayload.publicKey,
           signature: signaturePayload.signature,
           timestamp: signaturePayload.timestamp,
           nonce: signaturePayload.nonce,
+          dataHash,
         });
 
-        if (!isValid) {
+        if (!verifyResult.valid) {
           sendJson(res, 401, {
             code: 401,
-            message: 'Invalid signature',
+            message: verifyResult.error || 'Invalid signature',
             data: null as unknown as null,
           });
           return;
         }
 
-        // Verify publicKey matches
-        if (signaturePayload.publicKey !== publicKey) {
-          sendJson(res, 401, {
-            code: 401,
-            message: 'Public key mismatch',
-            data: null as unknown as null,
-          });
-          return;
-        }
-
+        // Check status using publicKey from signature payload
         const result = await store.checkStatus({
-          publicKey,
+          publicKey: signaturePayload.publicKey,
           postData: body,
         });
         sendJson(res, 200, { code: 0, message: 'ok', data: result });
@@ -350,35 +417,31 @@ export const startKeylessCloudSyncMockServer = (
           return;
         }
 
-        // Verify signature (no dataHash for download)
-        const isValid = await verifySignature({
+        // Compute dataHash from postData (same as client)
+        const postDataString = stableStringify(body);
+        const dataHash = computeDataHash(postDataString);
+
+        // Verify signature (with dataHash to match client behavior)
+        const verifyResult = await verifySignature({
           publicKey: signaturePayload.publicKey,
           signature: signaturePayload.signature,
           timestamp: signaturePayload.timestamp,
           nonce: signaturePayload.nonce,
+          dataHash,
         });
 
-        if (!isValid) {
+        if (!verifyResult.valid) {
           sendJson(res, 401, {
             code: 401,
-            message: 'Invalid signature',
+            message: verifyResult.error || 'Invalid signature',
             data: null as unknown as null,
           });
           return;
         }
 
-        // Verify publicKey matches
-        if (signaturePayload.publicKey !== publicKey) {
-          sendJson(res, 401, {
-            code: 401,
-            message: 'Public key mismatch',
-            data: null as unknown as null,
-          });
-          return;
-        }
-
+        // Download data using publicKey from signature payload
         const result = await store.download({
-          publicKey,
+          publicKey: signaturePayload.publicKey,
           signatureHeader: signatureHeader ?? '',
           postData: body,
         });

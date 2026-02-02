@@ -30,13 +30,11 @@ class KeylessCloudSyncMockApi {
   private async postToMockServer<T>({
     client,
     url,
-    publicKey,
     signatureHeader,
     postData,
   }: {
     client: AxiosInstance;
     url: string;
-    publicKey: string;
     signatureHeader: string;
     postData: unknown;
   }): Promise<T> {
@@ -49,7 +47,7 @@ class KeylessCloudSyncMockApi {
       const response = await client.post<IApiClientResponse<T>>(url, postData, {
         baseURL: mockServerUrl,
         headers: {
-          'x-keyless-public-key': publicKey,
+          // x-keyless-sync-signature already contains publicKey, no need for separate header
           'x-keyless-sync-signature': signatureHeader,
         },
       });
@@ -68,14 +66,12 @@ class KeylessCloudSyncMockApi {
 
   async upload(params: {
     client: AxiosInstance;
-    publicKey: string;
     signatureHeader: string;
     postData: ICloudSyncUploadPostData;
   }): Promise<ICloudSyncUploadResult | undefined> {
     return this.postToMockServer<ICloudSyncUploadResult>({
       client: params.client,
       url: '/prime/v1/sync/upload-keyless',
-      publicKey: params.publicKey,
       signatureHeader: params.signatureHeader,
       postData: params.postData,
     });
@@ -83,7 +79,6 @@ class KeylessCloudSyncMockApi {
 
   async checkStatus(params: {
     client: AxiosInstance;
-    publicKey: string;
     signatureHeader: string;
     postData: ICloudSyncCheckServerStatusPostData;
   }): Promise<{
@@ -96,7 +91,6 @@ class KeylessCloudSyncMockApi {
     }>({
       client: params.client,
       url: '/prime/v1/sync/check-keyless',
-      publicKey: params.publicKey,
       signatureHeader: params.signatureHeader,
       postData: params.postData,
     });
@@ -104,32 +98,28 @@ class KeylessCloudSyncMockApi {
 
   async download(params: {
     client: AxiosInstance;
-    publicKey?: string;
     signatureHeader?: string;
     postData: ICloudSyncDownloadPostData;
   }): Promise<ICloudSyncDownloadResult> {
-    if (params.publicKey && params.signatureHeader) {
+    if (params.signatureHeader) {
       return this.postToMockServer<ICloudSyncDownloadResult>({
         client: params.client,
         url: '/prime/v1/sync/download-keyless',
-        publicKey: params.publicKey,
         signatureHeader: params.signatureHeader,
         postData: params.postData,
       });
     }
 
-    throw new OneKeyLocalError('Public key or signature header is not set');
+    throw new OneKeyLocalError('Signature header is not set');
   }
 
   async clear(params: {
     client: AxiosInstance;
-    publicKey: string;
     signatureHeader: string;
   }): Promise<void> {
     await this.postToMockServer<{ cleared: boolean }>({
       client: params.client,
       url: '/prime/v1/sync/clear-keyless',
-      publicKey: params.publicKey,
       signatureHeader: params.signatureHeader,
       postData: {},
     });
