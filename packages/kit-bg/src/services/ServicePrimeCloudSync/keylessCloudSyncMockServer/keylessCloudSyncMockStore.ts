@@ -1,4 +1,7 @@
 /* eslint-disable no-continue */
+import fs from 'fs';
+import path from 'path';
+
 import type {
   ICloudSyncCheckServerStatusPostData,
   ICloudSyncCheckServerStatusResult,
@@ -15,8 +18,52 @@ type ICheckStatusResult = {
   serverTime: string;
 };
 
+type IStorageData = Record<string, ICloudSyncServerItem[]>;
+
 export class KeylessCloudSyncMockStore {
-  private storage: Map<string, ICloudSyncServerItem[]> = new Map();
+  private storageDir: string;
+
+  private storageFilePath: string;
+
+  constructor() {
+    // 使用 .tmp 目录存储（已在 .gitignore 中）
+    this.storageDir = path.resolve(__dirname, '../../../../../.tmp');
+    this.storageFilePath = path.join(
+      this.storageDir,
+      'keyless-cloud-sync-mock-data.json',
+    );
+    this.ensureStorageDir();
+  }
+
+  private ensureStorageDir(): void {
+    if (!fs.existsSync(this.storageDir)) {
+      fs.mkdirSync(this.storageDir, { recursive: true });
+    }
+  }
+
+  private loadStorage(): IStorageData {
+    try {
+      if (fs.existsSync(this.storageFilePath)) {
+        const content = fs.readFileSync(this.storageFilePath, 'utf-8');
+        return JSON.parse(content) as IStorageData;
+      }
+    } catch (error) {
+      console.error('[MockAPI] Failed to load storage:', error);
+    }
+    return {};
+  }
+
+  private saveStorage(data: IStorageData): void {
+    try {
+      fs.writeFileSync(
+        this.storageFilePath,
+        JSON.stringify(data, null, 2),
+        'utf-8',
+      );
+    } catch (error) {
+      console.error('[MockAPI] Failed to save storage:', error);
+    }
+  }
 
   private getStorageKey(publicKey: string): string {
     return `keyless_${publicKey.slice(0, 32)}`;
@@ -30,8 +77,9 @@ export class KeylessCloudSyncMockStore {
     publicKey: string;
     postData: ICloudSyncUploadPostData;
   }): Promise<ICloudSyncUploadResult> {
+    const storage = this.loadStorage();
     const key = this.getStorageKey(params.publicKey);
-    const existingItems = this.storage.get(key) ?? [];
+    const existingItems = storage[key] ?? [];
     const itemMap = new Map(existingItems.map((item) => [item.key, item]));
     const items = params.postData.localData ?? [];
     let created = 0;
@@ -51,7 +99,8 @@ export class KeylessCloudSyncMockStore {
       }
     }
 
-    this.storage.set(key, Array.from(itemMap.values()));
+    storage[key] = Array.from(itemMap.values());
+    this.saveStorage(storage);
     console.log(
       '[MockAPI] Keyless upload success:',
       key,
@@ -69,8 +118,9 @@ export class KeylessCloudSyncMockStore {
     publicKey: string;
     postData: ICloudSyncCheckServerStatusPostData;
   }): Promise<ICheckStatusResult> {
+    const storage = this.loadStorage();
     const key = this.getStorageKey(params.publicKey);
-    const mockedServerItems = this.storage.get(key) ?? [];
+    const mockedServerItems = storage[key] ?? [];
     const onlyCheckLocalDataType = new Set(
       params.postData.onlyCheckLocalDataType,
     );
@@ -162,8 +212,9 @@ export class KeylessCloudSyncMockStore {
       };
     }
 
+    const storage = this.loadStorage();
     const key = this.getStorageKey(params.publicKey);
-    const serverData = this.storage.get(key) ?? [];
+    const serverData = storage[key] ?? [];
     const sliced = serverData.slice(
       params.postData.start ?? 0,
       params.postData.limit
@@ -186,7 +237,13 @@ export class KeylessCloudSyncMockStore {
   }
 
   clear(): void {
-    this.storage.clear();
-    console.log('[MockAPI] Keyless storage cleared');
+    try {
+      if (fs.existsSync(this.storageFilePath)) {
+        fs.unlinkSync(this.storageFilePath);
+      }
+      console.log('[MockAPI] Keyless storage cleared');
+    } catch (error) {
+      console.error('[MockAPI] Failed to clear storage:', error);
+    }
   }
 }

@@ -27,7 +27,7 @@ import {
 } from '@onekeyhq/shared/src/eventBus/appEventBus';
 import { ETranslations } from '@onekeyhq/shared/src/locale';
 import { appLocale } from '@onekeyhq/shared/src/locale/appLocale';
-import { memoizee } from '@onekeyhq/shared/src/utils/cacheUtils';
+import cacheUtils, { memoizee } from '@onekeyhq/shared/src/utils/cacheUtils';
 import stringUtils from '@onekeyhq/shared/src/utils/stringUtils';
 import systemTimeUtils, {
   ELocalSystemTimeStatus,
@@ -138,72 +138,21 @@ class ServicePrimeCloudSync extends ServiceBase {
   };
 
   // ============ Keyless Cloud Sync Methods ============
-
-  /**
-   * Keyless credential cache (cleared on password change or wallet removal)
-   */
-  private keylessCredentialCache: IKeylessCloudSyncCredential | null = null;
-
   /**
    * Get the unique Keyless wallet in the app
    * @returns Keyless wallet or null if not exists
    */
   async getKeylessWallet(): Promise<IDBWallet | null> {
-    const wallet = await this.backgroundApi.serviceAccount.getKeylessWallet();
-    return wallet ?? null;
+    return localDb.getKeylessWallet();
   }
 
   /**
    * Get or derive Keyless sync credentials
    * @returns Keyless credentials or null if conditions not met
    */
-  async getKeylessCredential(): Promise<IKeylessCloudSyncCredential | null> {
-    // Check cache first
-    if (this.keylessCredentialCache) {
-      return this.keylessCredentialCache;
-    }
-
-    const keylessWallet = await this.getKeylessWallet();
-    if (!keylessWallet) {
-      return null;
-    }
-
-    const password =
-      await this.backgroundApi.servicePassword.getCachedPassword();
-    if (!password) {
-      return null;
-    }
-
-    const credential = await localDb.getCredentialSafe(keylessWallet.id);
-    if (!credential?.credential) {
-      return null;
-    }
-
-    try {
-      const keylessCredential =
-        await keylessCloudSyncUtils.deriveKeylessCredential({
-          hdCredential: credential.credential,
-          password,
-          keylessWalletId: keylessWallet.id,
-        });
-
-      this.keylessCredentialCache = keylessCredential;
-      return keylessCredential;
-    } catch (error) {
-      console.error(
-        '[PrimeCloudSync] Failed to derive keyless credential:',
-        error,
-      );
-      return null;
-    }
-  }
-
-  /**
-   * Clear Keyless credential cache
-   * Called when: password changed, keyless wallet removed, or user logged out
-   */
-  clearKeylessCredentialCache(): void {
-    this.keylessCredentialCache = null;
+  async getKeylessCloudSyncCredential(): Promise<IKeylessCloudSyncCredential | null> {
+    // Delegate to db layer for credential derivation
+    return localDb.getKeylessCloudSyncCredential();
   }
 
   /**
@@ -1689,9 +1638,19 @@ class ServicePrimeCloudSync extends ServiceBase {
   }
 
   @backgroundMethod()
-  async getSyncCredentialSafe(): Promise<ICloudSyncCredential | undefined> {
+  async getSyncCredentialSafe({
+    keylessCloudSyncCredential,
+  }: {
+    keylessCloudSyncCredential?: IKeylessCloudSyncCredential | null;
+  } = {}): Promise<ICloudSyncCredential | undefined> {
     const now = Date.now();
     try {
+      if (keylessCloudSyncCredential) {
+        this.keylessCloudSyncCredentialCache.set(
+          'keylessCloudSyncCredential',
+          keylessCloudSyncCredential,
+        );
+      }
       const result = await this.getSyncCredentialWithCache();
       return result;
     } catch (error) {
@@ -1715,6 +1674,23 @@ class ServicePrimeCloudSync extends ServiceBase {
     }
   }
 
+  @backgroundMethod()
+  async getKeylessCloudSyncCredentialCache() {
+    return this.keylessCloudSyncCredentialCache.get(
+      'keylessCloudSyncCredential',
+    );
+  }
+
+  // TODO remove cache
+  keylessCloudSyncCredentialCache = new cacheUtils.LRUCache<
+    string,
+    IKeylessCloudSyncCredential
+  >({
+    max: 1000,
+    ttl: timerUtils.getTimeDurationMs({ minute: 5 }),
+    ttlAutopurge: true,
+  });
+
   // TODO remove cache when logout, lock, change password/passcode, etc.
   getSyncCredentialWithCache = memoizee(
     async (): Promise<ICloudSyncCredential> => {
@@ -1728,7 +1704,9 @@ class ServicePrimeCloudSync extends ServiceBase {
       // Check sync mode - if Keyless mode, only need keyless credential
       const syncMode = await this.getActiveSyncMode();
       if (syncMode === ECloudSyncMode.Keyless) {
-        const keylessCredential = await this.getKeylessCredential();
+        const keylessCredential =
+          (await this.getKeylessCloudSyncCredentialCache()) ||
+          (await this.getKeylessCloudSyncCredential());
         if (!keylessCredential) {
           throw new OneKeyError('Failed to get keyless credential');
         }

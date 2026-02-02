@@ -57,7 +57,6 @@ import { EPrimeTransferDataType } from '@onekeyhq/shared/types/prime/primeTransf
 import backgroundApiProxy from '../../background/instance/backgroundApiProxy';
 import useAppNavigation from '../../hooks/useAppNavigation';
 import { usePromiseResult } from '../../hooks/usePromiseResult';
-import { useAccountSelectorActions } from '../../states/jotai/contexts/accountSelector';
 import { useOneKeyAuth } from '../OneKeyAuth/useOneKeyAuth';
 
 import {
@@ -393,7 +392,6 @@ if (process.env.NODE_ENV !== 'production') {
 
 export function useKeylessWallet() {
   const methods = useKeylessWalletMethods();
-  const actions = useAccountSelectorActions();
   const { loginOneKeyId, signInWithSocialLogin } = useOneKeyAuth();
   const isKeylessWalletCreated = useCallback(async () => {
     const user = await primePersistAtom.get();

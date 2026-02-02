@@ -5,6 +5,7 @@ import type { EPrimeCloudSyncDataType } from '@onekeyhq/shared/src/consts/primeC
 import { PRIME_CLOUD_SYNC_CREATE_GENESIS_TIME } from '@onekeyhq/shared/src/consts/primeConsts';
 import errorUtils from '@onekeyhq/shared/src/errors/utils/errorUtils';
 import cloudSyncUtils from '@onekeyhq/shared/src/utils/cloudSyncUtils';
+import type { IKeylessCloudSyncCredential } from '@onekeyhq/shared/types/keylessCloudSync';
 import type {
   ICloudSyncCredential,
   ICloudSyncDBRecord,
@@ -157,8 +158,14 @@ export abstract class CloudSyncFlowManagerBase<
     return sha512ProSync({ data: rawKey });
   }
 
-  async getSyncCredential() {
-    return this.backgroundApi.servicePrimeCloudSync.getSyncCredentialSafe();
+  async getSyncCredential({
+    keylessCloudSyncCredential,
+  }: {
+    keylessCloudSyncCredential?: IKeylessCloudSyncCredential | null;
+  } = {}) {
+    return this.backgroundApi.servicePrimeCloudSync.getSyncCredentialSafe({
+      keylessCloudSyncCredential,
+    });
   }
 
   async timeNow() {
@@ -329,18 +336,31 @@ export abstract class CloudSyncFlowManagerBase<
     const existingSyncItems: IDBCloudSyncItem[] = [];
     const existingSyncItemsInfo: IExistingSyncItemsInfo<T> = {};
 
-    const syncCredential = await this.getSyncCredential();
+    let keylessCloudSyncCredential: IKeylessCloudSyncCredential | null = null;
+
+    if (tx) {
+      keylessCloudSyncCredential =
+        (await this.backgroundApi.servicePrimeCloudSync.getKeylessCloudSyncCredentialCache()) ||
+        (await this.backgroundApi.localDb.txGetKeylessCloudSyncCredential({
+          tx,
+        }));
+    }
+
+    const syncCredential = await this.getSyncCredential({
+      keylessCloudSyncCredential,
+    });
     const canSyncWithoutServer = cloudSyncUtils.canSyncWithoutServer(
       this.dataType,
     );
 
+    const shouldSync =
+      canSyncWithoutServer ||
+      (await this.backgroundApi.servicePrimeCloudSync.isCloudSyncIsAvailable());
+
     for (const target of targets) {
       let existingSyncItem: IDBCloudSyncItem | undefined;
 
-      if (
-        canSyncWithoutServer ||
-        (await this.backgroundApi.servicePrimeCloudSync.isCloudSyncIsAvailable())
-      ) {
+      if (shouldSync) {
         if (tx) {
           existingSyncItem = await this.txGetSyncItem({
             tx,
