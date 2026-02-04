@@ -183,13 +183,10 @@ class ServicePrimeCloudSync extends ServiceBase {
     return ECloudSyncMode.None;
   }
 
-  async getKeylessSyncAuth({
+  async getKeylessSyncAuth<T extends Record<string, unknown>>({
     postData,
   }: {
-    postData:
-      | ICloudSyncCheckServerStatusPostData
-      | ICloudSyncDownloadPostData
-      | ICloudSyncUploadPostData;
+    postData: T;
   }): Promise<{
     publicKey: string;
     signatureHeader: string;

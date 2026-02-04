@@ -4,6 +4,7 @@ import {
   backgroundMethod,
   toastIfError,
 } from '@onekeyhq/shared/src/background/backgroundDecorators';
+import { KEYLESS_SYNC_SIGNATURE_HEADER } from '@onekeyhq/shared/src/consts/keylessCloudSyncConsts';
 import { IMPL_EVM } from '@onekeyhq/shared/src/engine/engineConsts';
 import { OneKeyLocalError } from '@onekeyhq/shared/src/errors';
 import {
@@ -22,6 +23,7 @@ import timerUtils from '@onekeyhq/shared/src/utils/timerUtils';
 import type { INetworkAccount } from '@onekeyhq/shared/types/account';
 import type { IApiClientResponse } from '@onekeyhq/shared/types/endpoint';
 import { EServiceEndpointEnum } from '@onekeyhq/shared/types/endpoint';
+import { ECloudSyncMode } from '@onekeyhq/shared/types/keylessCloudSync';
 import type { IHyperLiquidSignatureRSV } from '@onekeyhq/shared/types/hyperliquid/webview';
 import type {
   ENotificationPushTopicTypes,
@@ -1070,6 +1072,25 @@ export default class ServiceNotification extends ServiceBase {
     });
   }
 
+  async buildKeylessSignatureHeaderForRegister({
+    params,
+  }: {
+    params: INotificationPushRegisterParams;
+  }): Promise<string | undefined> {
+    if (
+      (await this.backgroundApi.servicePrimeCloudSync.getActiveSyncMode()) !==
+      ECloudSyncMode.Keyless
+    ) {
+      return undefined;
+    }
+
+    const auth =
+      await this.backgroundApi.servicePrimeCloudSync.getKeylessSyncAuth({
+        postData: params,
+      });
+    return auth?.signatureHeader;
+  }
+
   @backgroundMethod()
   async registerClient(params: INotificationPushRegisterParams) {
     try {
@@ -1080,13 +1101,22 @@ export default class ServiceNotification extends ServiceBase {
         settings.instanceId,
       );
       const client = await this.getClient(EServiceEndpointEnum.Notification);
+      const signatureHeader = await this.buildKeylessSignatureHeaderForRegister(
+        { params },
+      );
       const result = await client.post<
         IApiClientResponse<{
           badges: number;
           created: number;
           removed: number;
         }>
-      >('/notification/v1/account/register', params);
+      >('/notification/v1/account/register', params, {
+        headers: signatureHeader
+          ? {
+              [KEYLESS_SYNC_SIGNATURE_HEADER]: signatureHeader,
+            }
+          : undefined,
+      });
       defaultLogger.notification.common.registerClient(
         params,
         result.data,

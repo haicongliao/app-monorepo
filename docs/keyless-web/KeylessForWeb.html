@@ -1,0 +1,716 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Keyless for Web 原型</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f6f7fb;
+      --panel: #ffffff;
+      --text: #0f172a;
+      --muted: #64748b;
+      --primary: #2563eb;
+      --primary-600: #1d4ed8;
+      --danger: #dc2626;
+      --border: #e2e8f0;
+      --shadow: 0 12px 30px rgba(15, 23, 42, 0.12);
+      --radius: 12px;
+      --panel-width: 360px;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      padding: 0;
+      font-family: "Inter", "PingFang SC", "Microsoft YaHei", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }
+    button {
+      font-family: inherit;
+      cursor: pointer;
+      border: none;
+      border-radius: 10px;
+      padding: 10px 16px;
+      font-weight: 600;
+    }
+    .btn-primary {
+      background: var(--primary);
+      color: #fff;
+    }
+    .btn-primary:hover { background: var(--primary-600); }
+    .btn-secondary {
+      background: #eef2ff;
+      color: var(--primary);
+    }
+    .btn-ghost {
+      background: #fff;
+      border: 1px solid var(--border);
+      color: var(--text);
+    }
+    .btn-danger {
+      background: #fee2e2;
+      color: var(--danger);
+    }
+
+    .app {
+      min-height: 100vh;
+      padding: 24px;
+    }
+    .layout {
+      display: grid;
+      grid-template-columns: 1fr var(--panel-width);
+      gap: 20px;
+      align-items: start;
+    }
+    .layout.panel-hidden {
+      grid-template-columns: 1fr;
+    }
+    .main {
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+      min-width: 0;
+    }
+
+    .topbar {
+      background: var(--panel);
+      padding: 16px 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+    }
+    .brand {
+      font-weight: 700;
+      font-size: 18px;
+    }
+    .topbar-right {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .wallet-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      background: #eef2ff;
+      padding: 8px 12px;
+      border-radius: 999px;
+      font-size: 13px;
+      color: var(--primary);
+    }
+
+    .market {
+      background: var(--panel);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 20px;
+    }
+    .market h2 { margin: 0 0 16px; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 14px;
+    }
+    th, td {
+      text-align: left;
+      padding: 12px 8px;
+      border-bottom: 1px solid var(--border);
+    }
+    th { color: var(--muted); font-weight: 600; }
+    .positive { color: #16a34a; }
+    .negative { color: #dc2626; }
+
+    /* Side panel */
+    .side-panel {
+      background: var(--panel);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 16px;
+      height: calc(100vh - 48px);
+      position: sticky;
+      top: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .side-panel.hidden-panel {
+      display: none;
+    }
+    .panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .panel-title { font-weight: 700; }
+    .panel-body {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .panel-card {
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 12px;
+      background: #f8fafc;
+    }
+    .small {
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .muted { color: var(--muted); }
+
+    .plugin-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 10px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: #fff;
+      font-size: 12px;
+      color: var(--text);
+    }
+    .plugin-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #16a34a;
+    }
+    .plugin-label { font-weight: 600; }
+    .plugin-status { color: var(--muted); }
+
+    /* Modals */
+    .overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(15, 23, 42, 0.35);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 20;
+    }
+    .overlay.active { display: flex; }
+    .modal {
+      background: var(--panel);
+      border-radius: 16px;
+      padding: 24px;
+      width: 420px;
+      box-shadow: var(--shadow);
+    }
+    .modal h3 { margin: 0 0 12px; }
+    .modal-actions { display: flex; gap: 12px; flex-wrap: wrap; }
+
+    .form-group {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      margin-top: 10px;
+    }
+    .form-group input {
+      padding: 10px 12px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      font-size: 14px;
+    }
+
+    .spinner {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      border: 3px solid #e2e8f0;
+      border-top-color: var(--primary);
+      animation: spin 1s linear infinite;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <div class="layout" id="layout">
+      <div class="main">
+        <header class="topbar">
+          <div class="brand">Keyless Market</div>
+          <div class="topbar-right" id="topbarRight"></div>
+        </header>
+
+        <section class="market">
+          <h2>数字货币行情</h2>
+          <table>
+            <thead>
+              <tr>
+                <th>资产</th>
+                <th>价格</th>
+                <th>24h 涨跌</th>
+                <th>市值</th>
+                <th>成交量</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td>BTC</td><td>$67,820</td><td class="positive">+2.4%</td><td>$1.33T</td><td>$36.1B</td></tr>
+              <tr><td>ETH</td><td>$3,460</td><td class="negative">-1.1%</td><td>$415B</td><td>$18.4B</td></tr>
+              <tr><td>SOL</td><td>$168.2</td><td class="positive">+3.7%</td><td>$76B</td><td>$4.8B</td></tr>
+              <tr><td>USDT</td><td>$1.00</td><td class="positive">+0.0%</td><td>$112B</td><td>$56.2B</td></tr>
+              <tr><td>DOGE</td><td>$0.164</td><td class="negative">-0.8%</td><td>$24B</td><td>$1.9B</td></tr>
+              <tr><td>BNB</td><td>$528</td><td class="positive">+0.9%</td><td>$81B</td><td>$2.1B</td></tr>
+            </tbody>
+          </table>
+        </section>
+      </div>
+
+      <aside class="side-panel" id="sidePanel">
+        <div class="panel-header">
+          <div class="panel-title">OneKey 插件</div>
+        </div>
+        <div class="panel-body" id="panelBody"></div>
+        <div class="panel-footer" id="panelFooter"></div>
+      </aside>
+    </div>
+  </div>
+
+  <!-- Connect modal -->
+  <div class="overlay" id="connectOverlay">
+    <div class="modal">
+      <h3>连接钱包</h3>
+      <p class="muted">请选择登录方式</p>
+      <div class="modal-actions">
+        <button class="btn-primary" data-auth="Google">使用 Google 登录</button>
+        <button class="btn-secondary" data-auth="Apple">使用 Apple 登录</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Install modal -->
+  <div class="overlay" id="installOverlay">
+    <div class="modal">
+      <h3>请安装 OneKey 插件继续</h3>
+      <p class="muted">前往谷歌商店下载插件后再返回本页。</p>
+      <div class="modal-actions">
+        <button class="btn-primary" id="goStore">前往谷歌商店</button>
+        <button class="btn-secondary" id="installedDone">我已安装完成</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Auth modal -->
+  <div class="overlay" id="authOverlay">
+    <div class="modal">
+      <h3 id="authTitle">登录</h3>
+      <div class="form-group">
+        <label>账号</label>
+        <input type="text" placeholder="请输入账号" />
+      </div>
+      <div class="form-group">
+        <label>密码</label>
+        <input type="password" placeholder="请输入密码" />
+      </div>
+      <div class="modal-actions" style="margin-top: 16px;">
+        <button class="btn-primary" id="authConfirm">确认登录</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const STORE_URL = '';
+
+    const state = {
+      pluginInstalled: false,
+      walletExists: false,
+      walletType: 'None',
+      siteConnected: false,
+      selectedAuth: 'Google',
+      panelHidden: true,
+      connecting: false,
+    };
+
+    const layout = document.getElementById('layout');
+    const sidePanel = document.getElementById('sidePanel');
+    const topbarRight = document.getElementById('topbarRight');
+    const panelBody = document.getElementById('panelBody');
+    const panelFooter = document.getElementById('panelFooter');
+    const connectOverlay = document.getElementById('connectOverlay');
+    const installOverlay = document.getElementById('installOverlay');
+    const authOverlay = document.getElementById('authOverlay');
+    const authTitle = document.getElementById('authTitle');
+
+    function renderTopbar() {
+      topbarRight.innerHTML = '';
+
+      if (state.siteConnected) {
+        const chip = document.createElement('div');
+        chip.className = 'wallet-chip';
+        chip.textContent = `已连接：${state.walletType} · 0x4a3b...9c2e`;
+
+        const btn = document.createElement('button');
+        btn.className = 'btn-ghost';
+        btn.textContent = '断开连接';
+        btn.onclick = () => {
+          state.siteConnected = false;
+          state.connecting = false;
+          renderAll();
+        };
+
+        topbarRight.appendChild(chip);
+        topbarRight.appendChild(btn);
+      } else {
+        const btn = document.createElement('button');
+        btn.className = 'btn-primary';
+        btn.textContent = '连接钱包';
+        btn.disabled = state.connecting;
+        btn.style.opacity = state.connecting ? '0.5' : '1';
+        btn.style.cursor = state.connecting ? 'not-allowed' : 'pointer';
+        btn.onclick = () => {
+          if (state.connecting) return;
+          openOverlay(connectOverlay);
+        };
+        topbarRight.appendChild(btn);
+      }
+
+      if (state.pluginInstalled) {
+        const pluginBtn = document.createElement('button');
+        pluginBtn.className = 'plugin-btn';
+        pluginBtn.innerHTML = `<span class="plugin-dot"></span><span class="plugin-label">插件</span><span class="plugin-status">${state.panelHidden ? '已隐藏' : '已展开'}</span>`;
+        pluginBtn.onclick = () => {
+          state.panelHidden = !state.panelHidden;
+          renderAll();
+        };
+        topbarRight.appendChild(pluginBtn);
+      }
+    }
+
+    function renderPanel() {
+      panelBody.innerHTML = '';
+      panelFooter.innerHTML = '';
+
+      const shouldHide = !state.pluginInstalled || state.panelHidden;
+      if (shouldHide) {
+        sidePanel.classList.add('hidden-panel');
+        layout.classList.add('panel-hidden');
+        return;
+      }
+
+      sidePanel.classList.remove('hidden-panel');
+      layout.classList.remove('panel-hidden');
+
+      if (!state.walletExists) {
+        panelBody.appendChild(makeCard('未创建钱包', '当前没有可用钱包，请连接账户创建。'));
+      } else {
+        panelBody.appendChild(makeWalletCard());
+      }
+
+      panelFooter.appendChild(makePanelControls());
+    }
+
+    function makePanelControls() {
+      const wrap = document.createElement('div');
+      wrap.style.display = 'flex';
+      wrap.style.flexDirection = 'column';
+      wrap.style.gap = '8px';
+
+      const uninstall = document.createElement('button');
+      uninstall.className = 'btn-danger';
+      uninstall.textContent = '卸载插件（模拟）';
+      uninstall.onclick = () => {
+        state.pluginInstalled = false;
+        state.walletExists = false;
+        state.walletType = 'None';
+        state.siteConnected = false;
+        state.panelHidden = true;
+        state.connecting = false;
+        resetToHome();
+      };
+
+      wrap.appendChild(uninstall);
+      return wrap;
+    }
+
+    function makeCard(title, desc) {
+      const card = document.createElement('div');
+      card.className = 'panel-card';
+      const h4 = document.createElement('div');
+      h4.style.fontWeight = '600';
+      h4.textContent = title;
+      const p = document.createElement('div');
+      p.className = 'small';
+      p.textContent = desc;
+      card.appendChild(h4);
+      card.appendChild(p);
+      return card;
+    }
+
+    function makeWalletCard() {
+      const card = document.createElement('div');
+      card.className = 'panel-card';
+      const title = document.createElement('div');
+      title.style.fontWeight = '600';
+      title.textContent = `${state.walletType} Wallet`;
+      const addr = document.createElement('div');
+      addr.className = 'small';
+      addr.textContent = '地址：0x4a3b...9c2e';
+      const del = document.createElement('button');
+      del.className = 'btn-danger';
+      del.style.marginTop = '8px';
+      del.textContent = '删除钱包';
+      del.onclick = () => {
+        state.walletExists = false;
+        state.walletType = 'None';
+        state.siteConnected = false;
+        state.connecting = false;
+        renderAll();
+      };
+      card.appendChild(title);
+      card.appendChild(addr);
+      card.appendChild(del);
+      return card;
+    }
+
+    function openOverlay(overlay) {
+      overlay.classList.add('active');
+    }
+
+    function closeOverlay(overlay) {
+      overlay.classList.remove('active');
+    }
+
+    function resetToHome() {
+      state.connecting = false;
+      closeOverlay(connectOverlay);
+      closeOverlay(installOverlay);
+      closeOverlay(authOverlay);
+      renderAll();
+    }
+
+    function beginLogin() {
+      showPanelLoading(`正在登录您的 ${state.selectedAuth} 账户`);
+      authTitle.textContent = `${state.selectedAuth} 登录`;
+      openOverlay(authOverlay);
+    }
+
+    function showPanelLoading(text) {
+      panelBody.innerHTML = '';
+      panelFooter.innerHTML = '';
+      const wrap = document.createElement('div');
+      wrap.style.display = 'flex';
+      wrap.style.flexDirection = 'column';
+      wrap.style.alignItems = 'center';
+      wrap.style.gap = '12px';
+      const spinner = document.createElement('div');
+      spinner.className = 'spinner';
+      const label = document.createElement('div');
+      label.textContent = text;
+      label.className = 'muted';
+      wrap.appendChild(spinner);
+      wrap.appendChild(label);
+      panelBody.appendChild(wrap);
+    }
+
+    function showPinForm() {
+      panelBody.innerHTML = '';
+      const card = document.createElement('div');
+      card.className = 'panel-card';
+      const title = document.createElement('div');
+      title.style.fontWeight = '600';
+      title.textContent = '输入 PIN 码';
+      const input = document.createElement('input');
+      input.type = 'password';
+      input.placeholder = '请输入 PIN 码';
+      input.style.marginTop = '10px';
+      input.style.width = '100%';
+      input.style.padding = '10px 12px';
+      input.style.borderRadius = '10px';
+      input.style.border = '1px solid var(--border)';
+
+      const btn = document.createElement('button');
+      btn.className = 'btn-primary';
+      btn.style.marginTop = '10px';
+      btn.textContent = '确认';
+      btn.onclick = () => {
+        showPanelLoading('正在创建您的钱包数据');
+        setTimeout(() => {
+          showConnectedSuccess();
+        }, 3000);
+      };
+
+      card.appendChild(title);
+      card.appendChild(input);
+      card.appendChild(btn);
+      panelBody.appendChild(card);
+    }
+
+    function showConnectedSuccess() {
+      state.walletExists = true;
+      state.walletType = state.selectedAuth;
+      state.siteConnected = true;
+      state.connecting = false;
+
+      panelBody.innerHTML = '';
+      const card = document.createElement('div');
+      card.className = 'panel-card';
+      const title = document.createElement('div');
+      title.style.fontWeight = '600';
+      title.textContent = '已连接到官网';
+
+      const btn = document.createElement('button');
+      btn.className = 'btn-primary';
+      btn.style.marginTop = '10px';
+      btn.textContent = '确认';
+      btn.onclick = () => {
+        renderAll();
+      };
+
+      const back = document.createElement('button');
+      back.className = 'btn-ghost';
+      back.style.marginTop = '8px';
+      back.textContent = '返回首页';
+      back.onclick = () => {
+        renderAll();
+      };
+
+      card.appendChild(title);
+      card.appendChild(btn);
+      card.appendChild(back);
+      panelBody.appendChild(card);
+    }
+
+    function showMatchWalletConnect() {
+      panelBody.innerHTML = '';
+      const card = document.createElement('div');
+      card.className = 'panel-card';
+      const title = document.createElement('div');
+      title.style.fontWeight = '600';
+      title.textContent = `${state.walletType} Wallet`;
+      const addr = document.createElement('div');
+      addr.className = 'small';
+      addr.textContent = '地址：0x4a3b...9c2e';
+      const btn = document.createElement('button');
+      btn.className = 'btn-primary';
+      btn.style.marginTop = '10px';
+      btn.textContent = '确定连接';
+      btn.onclick = () => {
+        state.siteConnected = true;
+        state.connecting = false;
+        renderAll();
+      };
+      card.appendChild(title);
+      card.appendChild(addr);
+      card.appendChild(btn);
+      panelBody.appendChild(card);
+    }
+
+    function showMismatchPrompt() {
+      panelBody.innerHTML = '';
+      const card = document.createElement('div');
+      card.className = 'panel-card';
+      const title = document.createElement('div');
+      title.style.fontWeight = '600';
+      title.textContent = `您已创建了一个 ${state.walletType} 账户的钱包，请使用 ${state.walletType} 账户连接。`;
+      const btnMain = document.createElement('button');
+      btnMain.className = 'btn-primary';
+      btnMain.style.marginTop = '10px';
+      btnMain.textContent = `登出 ${state.walletType} 钱包并使用 ${state.selectedAuth} 创建`;
+      btnMain.onclick = () => {
+        state.walletExists = false;
+        state.walletType = 'None';
+        beginLogin();
+      };
+      const btnSecondary = document.createElement('button');
+      btnSecondary.className = 'btn-ghost';
+      btnSecondary.style.marginTop = '8px';
+      btnSecondary.textContent = '确定';
+      btnSecondary.onclick = () => {
+        state.connecting = false;
+        renderAll();
+      };
+      card.appendChild(title);
+      card.appendChild(btnMain);
+      card.appendChild(btnSecondary);
+      panelBody.appendChild(card);
+    }
+
+    function handleConnectChoice() {
+      if (!state.pluginInstalled) {
+        state.connecting = true;
+        renderAll();
+        openOverlay(installOverlay);
+        return;
+      }
+
+      state.panelHidden = false;
+      state.connecting = true;
+      renderAll();
+
+      if (!state.walletExists) {
+        beginLogin();
+        return;
+      }
+
+      if (state.walletType === state.selectedAuth) {
+        showMatchWalletConnect();
+      } else {
+        showMismatchPrompt();
+      }
+    }
+
+    function renderAll() {
+      renderTopbar();
+      renderPanel();
+    }
+
+    document.querySelectorAll('[data-auth]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        state.selectedAuth = btn.dataset.auth;
+        closeOverlay(connectOverlay);
+        handleConnectChoice();
+      });
+    });
+
+    document.getElementById('goStore').onclick = () => {
+      closeOverlay(installOverlay);
+      setTimeout(() => {
+        state.pluginInstalled = true;
+        state.panelHidden = false;
+        state.connecting = true;
+        renderAll();
+        beginLogin();
+      }, 5000);
+      if (STORE_URL) {
+        window.open(STORE_URL, '_blank');
+      }
+    };
+
+    document.getElementById('installedDone').onclick = () => {
+      closeOverlay(installOverlay);
+      state.pluginInstalled = true;
+      state.panelHidden = false;
+      state.connecting = true;
+      renderAll();
+      beginLogin();
+    };
+
+    document.getElementById('authConfirm').onclick = () => {
+      closeOverlay(authOverlay);
+      showPinForm();
+    };
+
+    connectOverlay.addEventListener('click', (e) => {
+      if (e.target === connectOverlay) resetToHome();
+    });
+    installOverlay.addEventListener('click', (e) => {
+      if (e.target === installOverlay) resetToHome();
+    });
+    authOverlay.addEventListener('click', (e) => {
+      if (e.target === authOverlay) resetToHome();
+    });
+
+    renderAll();
+  </script>
+</body>
+</html>

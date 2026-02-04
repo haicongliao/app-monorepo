@@ -16,6 +16,7 @@ __generated__
 .tmp/keyless-cloud-sync-mock-data.json
 .cursor/plans/
 *.private_ai_docs.md
+*.local.md
 .cursor/plans/
 dist
 build-electron
