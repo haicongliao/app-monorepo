@@ -2200,6 +2200,7 @@ export abstract class LocalDbBase extends LocalDbBaseContainer {
 
     const { existingSyncItems, newSyncItems } =
       await syncManager.buildExistingSyncItemsInfo({
+        tx: undefined,
         targets: [
           {
             targetId: currentWalletToCreate.id,
@@ -2803,6 +2804,7 @@ export abstract class LocalDbBase extends LocalDbBaseContainer {
 
     const { existingSyncItems, newSyncItems } =
       await syncManager.buildExistingSyncItemsInfo({
+        tx: undefined,
         targets: [
           {
             targetId: walletToAdd.id,
@@ -3217,6 +3219,7 @@ export abstract class LocalDbBase extends LocalDbBaseContainer {
 
     const { existingSyncItems, newSyncItems } =
       await syncManager.buildExistingSyncItemsInfo({
+        tx: undefined,
         targets: [
           {
             targetId: walletToAdd.id,
@@ -4030,6 +4033,7 @@ export abstract class LocalDbBase extends LocalDbBaseContainer {
     const existingSyncItemsInfoResult000025394378263443374653 =
       await (async () => {
         return syncManager.buildExistingSyncItemsInfo({
+          tx: undefined,
           targets: accounts.map((account) => ({
             targetId: account.id,
             dataType: EPrimeCloudSyncDataType.Account,

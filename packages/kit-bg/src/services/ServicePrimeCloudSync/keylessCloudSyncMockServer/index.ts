@@ -237,7 +237,7 @@ const sendJson = <T>(
     'Content-Type': 'application/json',
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, x-keyless-sync-signature',
+    'Access-Control-Allow-Headers': '*',
   });
   res.end(JSON.stringify(payload));
 };
@@ -257,8 +257,7 @@ export const startKeylessCloudSyncMockServer = (
         res.writeHead(204, {
           'Access-Control-Allow-Origin': '*',
           'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-          'Access-Control-Allow-Headers':
-            'Content-Type, x-keyless-sync-signature',
+          'Access-Control-Allow-Headers': '*',
           'Access-Control-Max-Age': '86400', // 24 hours
         });
         res.end();

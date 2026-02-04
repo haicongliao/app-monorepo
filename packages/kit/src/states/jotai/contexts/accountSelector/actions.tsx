@@ -862,6 +862,7 @@ class AccountSelectorActions extends ContextJotaiActionsBase {
               keylessDetailsInfo,
               // Cloud sync will query the Keyless wallet database. Querying during creation will cause the indexedDB transaction to automatically exit
               skipAddHDNextIndexedAccount: isKeylessWallet,
+              // skipAddHDNextIndexedAccount: false,
             });
           if (!indexedAccount?.id) {
             // Pre-cache cloud sync credentials to reduce database operation time and avoid indexedDB transaction auto-commit

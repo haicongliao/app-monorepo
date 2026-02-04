@@ -87,6 +87,8 @@ export type ICloudSyncCheckServerStatusPostData = {
     dataType: EPrimeCloudSyncDataType;
   }[];
   onlyCheckLocalDataType: EPrimeCloudSyncDataType[];
+  nonce: number;
+  pwdHash: string | undefined;
 };
 
 export type ICloudSyncCheckServerStatusResult = {

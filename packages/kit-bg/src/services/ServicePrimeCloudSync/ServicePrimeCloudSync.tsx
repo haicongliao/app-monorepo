@@ -190,7 +190,11 @@ class ServicePrimeCloudSync extends ServiceBase {
       | ICloudSyncCheckServerStatusPostData
       | ICloudSyncDownloadPostData
       | ICloudSyncUploadPostData;
-  }): Promise<{ publicKey: string; signatureHeader: string } | null> {
+  }): Promise<{
+    publicKey: string;
+    signatureHeader: string;
+    pwdHash: string | undefined;
+  } | null> {
     const password =
       await this.backgroundApi.servicePassword.getCachedPassword();
     if (!password) {
@@ -202,19 +206,20 @@ class ServicePrimeCloudSync extends ServiceBase {
     if (!keylessCredential) {
       return null;
     }
-
+    const pwdHash = syncCredential.keylessCredential?.pwdHash;
     const signatureHeader =
       await keylessCloudSyncUtils.buildKeylessSignatureHeader({
         signingPrivateKey: keylessCredential.signingPrivateKey,
         signingPublicKey: keylessCredential.signingPublicKey,
         password,
         dataHash: keylessCloudSyncUtils.computeDataHash(
-          stringUtils.stableStringify(postData),
+          stringUtils.stableStringify({ ...postData, pwdHash }),
         ),
       });
     return {
       publicKey: keylessCredential.signingPublicKey,
       signatureHeader,
+      pwdHash,
     };
   }
 
@@ -238,7 +243,10 @@ class ServicePrimeCloudSync extends ServiceBase {
     return keylessMockApi.checkStatus({
       client,
       signatureHeader: auth.signatureHeader,
-      postData,
+      postData: {
+        ...postData,
+        pwdHash: auth.pwdHash,
+      },
     });
   }
 
@@ -647,6 +655,8 @@ class ServicePrimeCloudSync extends ServiceBase {
         dataType: item.dataType,
       })),
       onlyCheckLocalDataType,
+      nonce: 0,
+      pwdHash: undefined,
     };
 
     let responseData: ICloudSyncCheckServerStatusResult | undefined;

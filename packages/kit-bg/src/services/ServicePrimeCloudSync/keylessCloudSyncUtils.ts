@@ -17,6 +17,7 @@ import {
   encryptAsync,
 } from '@onekeyhq/core/src/secret/encryptors/aes256';
 import type { ICoreHdCredentialEncryptHex } from '@onekeyhq/core/src/types';
+import appCrypto from '@onekeyhq/shared/src/appCrypto';
 import {
   KEYLESS_PWDHASH_CONTEXT,
   KEYLESS_PWDHASH_PREFIX,
@@ -24,7 +25,6 @@ import {
   KEYLESS_SYNC_ENCRYPTION_CONTEXT,
 } from '@onekeyhq/shared/src/consts/keylessCloudSyncConsts';
 import { OneKeyLocalError } from '@onekeyhq/shared/src/errors';
-import appCrypto from '@onekeyhq/shared/src/appCrypto';
 import bufferUtils from '@onekeyhq/shared/src/utils/bufferUtils';
 import stringUtils from '@onekeyhq/shared/src/utils/stringUtils';
 import type {
@@ -57,8 +57,8 @@ function computeKeylessPwdHash(encryptionKey: string): string {
  * @param pwdHash - pwdHash string to check
  * @returns true if pwdHash starts with 'keyless-' prefix
  */
-function isKeylessPwdHash(pwdHash: string): boolean {
-  return pwdHash.startsWith(KEYLESS_PWDHASH_PREFIX);
+function isKeylessPwdHash(pwdHash: string | undefined): boolean {
+  return !!pwdHash?.startsWith(KEYLESS_PWDHASH_PREFIX);
 }
 
 /**

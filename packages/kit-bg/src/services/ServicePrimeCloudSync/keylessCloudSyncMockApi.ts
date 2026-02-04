@@ -1,5 +1,6 @@
 /* eslint-disable no-continue */
 
+import { KEYLESS_SYNC_SIGNATURE_HEADER } from '@onekeyhq/shared/src/consts/keylessCloudSyncConsts';
 import { OneKeyLocalError } from '@onekeyhq/shared/src/errors';
 import type { IApiClientResponse } from '@onekeyhq/shared/types/endpoint';
 import type {
@@ -48,7 +49,7 @@ class KeylessCloudSyncMockApi {
         baseURL: mockServerUrl,
         headers: {
           // x-keyless-sync-signature already contains publicKey, no need for separate header
-          'x-keyless-sync-signature': signatureHeader,
+          [KEYLESS_SYNC_SIGNATURE_HEADER]: signatureHeader,
         },
       });
       if (response?.data?.data) {

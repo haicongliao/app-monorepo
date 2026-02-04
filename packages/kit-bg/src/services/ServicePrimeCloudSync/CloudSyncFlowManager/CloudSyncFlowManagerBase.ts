@@ -323,7 +323,7 @@ export abstract class CloudSyncFlowManagerBase<
     useCreateGenesisTime,
     onExistingSyncItemsInfo,
   }: {
-    tx?: ILocalDBTransaction;
+    tx: ILocalDBTransaction | undefined;
     targets: Array<ICloudSyncTargetMap[T]>;
     useCreateGenesisTime?: (params: {
       target: ICloudSyncTargetMap[T];
@@ -346,6 +346,8 @@ export abstract class CloudSyncFlowManagerBase<
         }));
     }
 
+    // Asynchronously fetching sync credentials may cause the transaction to commit prematurely, leading to the failure of subsequent database transaction operations.
+    // Failed to execute 'get' on 'IDBObjectStore': The transaction has finished.
     const syncCredential = await this.getSyncCredential({
       keylessCloudSyncCredential,
     });
