@@ -3255,6 +3255,10 @@ class ServiceAccount extends ServiceBase {
       skipAddHDNextIndexedAccount,
     });
 
+    if (result.wallet?.keylessDetailsInfo?.keylessOwnerId) {
+      void this.backgroundApi.serviceNotification.updateClientBasicAppInfoDebounced();
+    }
+
     await timerUtils.wait(100);
 
     appEventBus.emit(EAppEventBusNames.WalletUpdate, undefined);
@@ -3442,6 +3446,7 @@ class ServiceAccount extends ServiceBase {
     });
 
     if (keylessOwnerId) {
+      void this.backgroundApi.serviceNotification.updateClientBasicAppInfoDebounced();
       void this.backgroundApi.serviceKeylessWallet.cleanupKeylessWalletStorage({
         ownerId: keylessOwnerId,
       });

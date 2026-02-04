@@ -23,8 +23,8 @@ import timerUtils from '@onekeyhq/shared/src/utils/timerUtils';
 import type { INetworkAccount } from '@onekeyhq/shared/types/account';
 import type { IApiClientResponse } from '@onekeyhq/shared/types/endpoint';
 import { EServiceEndpointEnum } from '@onekeyhq/shared/types/endpoint';
-import { ECloudSyncMode } from '@onekeyhq/shared/types/keylessCloudSync';
 import type { IHyperLiquidSignatureRSV } from '@onekeyhq/shared/types/hyperliquid/webview';
+import { ECloudSyncMode } from '@onekeyhq/shared/types/keylessCloudSync';
 import type {
   ENotificationPushTopicTypes,
   INotificationClickParams,
@@ -680,6 +680,22 @@ export default class ServiceNotification extends ServiceBase {
       syncAccounts: [],
     });
   }
+
+  @backgroundMethod()
+  async updateClientBasicAppInfoDebounced() {
+    return this._updateClientBasicAppInfoDebounced();
+  }
+
+  _updateClientBasicAppInfoDebounced = debounce(
+    async () => {
+      await this.updateClientBasicAppInfo();
+    },
+    3000,
+    {
+      leading: false,
+      trailing: true,
+    },
+  );
 
   private async _registerClientWithOverrideAllAccountsCore() {
     console.log('registerClientWithOverrideAllAccountsCore');

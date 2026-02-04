@@ -114,6 +114,7 @@ export type ICloudSyncDownloadResult = {
 
 export type ICloudSyncUploadPostData = {
   localData: ICloudSyncServerItem[];
+  nonce: number;
   pwdHash: string;
   lock?: ICloudSyncServerItem | null | undefined;
 };

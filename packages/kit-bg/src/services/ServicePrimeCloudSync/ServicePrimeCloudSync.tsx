@@ -97,6 +97,9 @@ import keylessCloudSyncUtils from './keylessCloudSyncUtils';
 
 import type { RealmSchemaCloudSyncItem } from '../../dbs/local/realm/schemas/RealmSchemaCloudSyncItem';
 import type { IPrimeCloudSyncPersistAtomData } from '../../states/jotai/atoms';
+import type { AxiosResponse } from 'axios';
+
+const nonceZero = 0;
 
 @backgroundClass()
 class ServicePrimeCloudSync extends ServiceBase {
@@ -224,10 +227,7 @@ class ServicePrimeCloudSync extends ServiceBase {
     postData,
   }: {
     postData: ICloudSyncCheckServerStatusPostData;
-  }): Promise<{
-    result: ICloudSyncCheckServerStatusResult;
-    serverTime: string;
-  }> {
+  }) {
     const auth = await this.getKeylessSyncAuth({
       postData,
     });
@@ -251,7 +251,7 @@ class ServicePrimeCloudSync extends ServiceBase {
     postData,
   }: {
     postData: ICloudSyncDownloadPostData;
-  }): Promise<ICloudSyncDownloadResult> {
+  }) {
     const auth = await this.getKeylessSyncAuth({
       postData,
     });
@@ -261,18 +261,19 @@ class ServicePrimeCloudSync extends ServiceBase {
 
     const client = await this.backgroundApi.servicePrime.getPrimeClient();
 
-    return keylessMockApi.download({
+    const response = await keylessMockApi.download({
       client,
       signatureHeader: auth?.signatureHeader,
       postData,
     });
+    return response.data.data;
   }
 
   async apiUploadItemsKeyless({
     postData,
   }: {
     postData: ICloudSyncUploadPostData;
-  }): Promise<ICloudSyncUploadResult> {
+  }) {
     const auth = await this.getKeylessSyncAuth({
       postData,
     });
@@ -282,18 +283,12 @@ class ServicePrimeCloudSync extends ServiceBase {
 
     const client = await this.backgroundApi.servicePrime.getPrimeClient();
 
-    const result = await keylessMockApi.upload({
+    const response = await keylessMockApi.upload({
       client,
       signatureHeader: auth.signatureHeader,
       postData,
     });
-    return (
-      result ?? {
-        nonce: 0,
-        created: 0,
-        updated: 0,
-      }
-    );
+    return response.data.data;
   }
 
   /**
@@ -652,34 +647,37 @@ class ServicePrimeCloudSync extends ServiceBase {
         dataType: item.dataType,
       })),
       onlyCheckLocalDataType,
-      nonce: 0,
+      nonce: nonceZero,
       pwdHash: undefined,
     };
 
-    let responseData: ICloudSyncCheckServerStatusResult | undefined;
+    let response:
+      | AxiosResponse<
+          IApiClientResponse<ICloudSyncCheckServerStatusResult>,
+          any
+        >
+      | undefined;
     let masterPasswordUUID: string | undefined;
-    let serverTimeStr: string | undefined;
+
     if ((await this.getActiveSyncMode()) === ECloudSyncMode.Keyless) {
-      const result = await this.apiCheckServerStatusKeyless({
+      response = await this.apiCheckServerStatusKeyless({
         postData,
       });
-      responseData = result.result;
-      serverTimeStr = result.serverTime;
     } else {
       const client = await this.backgroundApi.servicePrime.getPrimeClient();
       ({ masterPasswordUUID } = await primeMasterPasswordPersistAtom.get());
       // TODO: server needs to filter data based on the submitted localData, not all data
-      const result = await client.post<
+      response = await client.post<
         IApiClientResponse<ICloudSyncCheckServerStatusResult>
       >('/prime/v1/sync/check', {
         ...postData,
         pwdHash: masterPasswordUUID,
       });
-      responseData = result?.data?.data;
-      serverTimeStr = result?.headers?.date as string | undefined;
     }
+    const responseData = response?.data?.data;
+    const serverTimeStr = response?.headers?.date as string | undefined;
 
-    if (!responseData.serverTime) {
+    if (!responseData?.serverTime) {
       try {
         if (serverTimeStr) {
           const serverTime = new Date(serverTimeStr).getTime();
@@ -939,6 +937,7 @@ class ServicePrimeCloudSync extends ServiceBase {
     }
     const postData: ICloudSyncUploadPostData = {
       localData: filteredLocalData,
+      nonce: nonceZero,
       pwdHash,
       lock: lockItemToServer,
     };
@@ -1412,6 +1411,7 @@ class ServicePrimeCloudSync extends ServiceBase {
 
   _startServerSyncFlowSilentlyThrottled = throttle(
     async (params: IStartServerSyncFlowParams = {}) => {
+      void this.backgroundApi.serviceNotification.updateClientBasicAppInfoDebounced();
       await this.startServerSyncFlowSilently(params);
     },
     timerUtils.getTimeDurationMs({ minute: 1 }),
@@ -1500,65 +1500,6 @@ class ServicePrimeCloudSync extends ServiceBase {
     return true;
   }
 
-  async isCloudSyncIsAvailable() {
-    const now = Date.now();
-    try {
-      await this.ensureCloudSyncIsAvailable();
-      return true;
-    } catch (error) {
-      errorUtils.autoPrintErrorIgnore(error);
-      return false;
-    } finally {
-      const endTime = Date.now();
-      const duration = endTime - now;
-      if (process.env.NODE_ENV !== 'production') {
-        if (duration > 600) {
-          void this.backgroundApi.serviceApp.showToast({
-            method: 'error',
-            title: `isCloudSyncIsAvailable took too long: ${duration}ms`,
-          });
-        }
-      }
-      console.log(
-        `CloudSyncTookTime:: ServicePrimeCloudSync.isCloudSyncIsAvailable() ${duration}ms`,
-      );
-    }
-  }
-
-  async ensureCloudSyncIsAvailable({
-    callerName = '',
-  }: {
-    callerName?: string;
-  } = {}) {
-    const activeMode = await this.getActiveSyncMode();
-    if (activeMode === ECloudSyncMode.Keyless) {
-      return;
-    }
-    const devSettings = await devSettingsPersistAtom.get();
-    const prime = await primePersistAtom.get();
-    const primeAvailable =
-      prime.isEnablePrime === true || devSettings.settings?.showPrimeTest;
-    if (!primeAvailable) {
-      throw new OneKeyError(`Prime DevSettings is not enabled: ${callerName}`);
-    }
-
-    const primeCloudSyncConfig = await primeCloudSyncPersistAtom.get();
-    if (!primeCloudSyncConfig.isCloudSyncEnabled) {
-      throw new OneKeyError(`Cloud sync is not enabled: ${callerName}`);
-    }
-
-    const isPrimeLoggedIn = await this.backgroundApi.servicePrime.isLoggedIn();
-    if (!isPrimeLoggedIn) {
-      throw new OneKeyError(`Prime is not logged in: ${callerName}`);
-    }
-
-    const isPrimeSubscriptionActive =
-      await this.backgroundApi.servicePrime.isPrimeSubscriptionActive();
-    if (!isPrimeSubscriptionActive) {
-      throw new OneKeyError(`Prime subscription is not active: ${callerName}`);
-    }
-  }
-
   @backgroundMethod()
   async startServerSyncFlowForItems({
     localItems,
@@ -1638,6 +1579,65 @@ class ServicePrimeCloudSync extends ServiceBase {
         syncCredential,
         serverPwdHash: serverStatus.pwdHash,
       });
+    }
+  }
+
+  async isCloudSyncIsAvailable() {
+    const now = Date.now();
+    try {
+      await this.ensureCloudSyncIsAvailable();
+      return true;
+    } catch (error) {
+      errorUtils.autoPrintErrorIgnore(error);
+      return false;
+    } finally {
+      const endTime = Date.now();
+      const duration = endTime - now;
+      if (process.env.NODE_ENV !== 'production') {
+        if (duration > 600) {
+          void this.backgroundApi.serviceApp.showToast({
+            method: 'error',
+            title: `isCloudSyncIsAvailable took too long: ${duration}ms`,
+          });
+        }
+      }
+      console.log(
+        `CloudSyncTookTime:: ServicePrimeCloudSync.isCloudSyncIsAvailable() ${duration}ms`,
+      );
+    }
+  }
+
+  async ensureCloudSyncIsAvailable({
+    callerName = '',
+  }: {
+    callerName?: string;
+  } = {}) {
+    const activeMode = await this.getActiveSyncMode();
+    if (activeMode === ECloudSyncMode.Keyless) {
+      return;
+    }
+    const devSettings = await devSettingsPersistAtom.get();
+    const prime = await primePersistAtom.get();
+    const primeAvailable =
+      prime.isEnablePrime === true || devSettings.settings?.showPrimeTest;
+    if (!primeAvailable) {
+      throw new OneKeyError(`Prime DevSettings is not enabled: ${callerName}`);
+    }
+
+    const primeCloudSyncConfig = await primeCloudSyncPersistAtom.get();
+    if (!primeCloudSyncConfig.isCloudSyncEnabled) {
+      throw new OneKeyError(`Cloud sync is not enabled: ${callerName}`);
+    }
+
+    const isPrimeLoggedIn = await this.backgroundApi.servicePrime.isLoggedIn();
+    if (!isPrimeLoggedIn) {
+      throw new OneKeyError(`Prime is not logged in: ${callerName}`);
+    }
+
+    const isPrimeSubscriptionActive =
+      await this.backgroundApi.servicePrime.isPrimeSubscriptionActive();
+    if (!isPrimeSubscriptionActive) {
+      throw new OneKeyError(`Prime subscription is not active: ${callerName}`);
     }
   }
 

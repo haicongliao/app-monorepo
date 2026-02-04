@@ -12,22 +12,11 @@ import type {
   ICloudSyncUploadResult,
 } from '@onekeyhq/shared/types/prime/primeCloudSyncTypes';
 
-import type { AxiosInstance } from 'axios';
+import type { AxiosInstance, AxiosResponse } from 'axios';
 
 const ENV_KEYLESS_SYNC_MOCK_SERVER_URL = 'KEYLESS_CLOUD_SYNC_MOCK_SERVER_URL';
 
 class KeylessCloudSyncMockApi {
-  private getMockServerUrl(): string | undefined {
-    try {
-      return (
-        process?.env?.[ENV_KEYLESS_SYNC_MOCK_SERVER_URL] ||
-        'http://127.0.0.1:17921'
-      );
-    } catch {
-      return undefined;
-    }
-  }
-
   private async postToMockServer<T>({
     client,
     url,
@@ -38,24 +27,15 @@ class KeylessCloudSyncMockApi {
     url: string;
     signatureHeader: string;
     postData: unknown;
-  }): Promise<T> {
-    const mockServerUrl = this.getMockServerUrl();
-    if (!mockServerUrl) {
-      throw new OneKeyLocalError('Mock server URL is not set');
-    }
-
+  }): Promise<AxiosResponse<IApiClientResponse<T>, any>> {
     try {
       const response = await client.post<IApiClientResponse<T>>(url, postData, {
-        baseURL: mockServerUrl,
         headers: {
           // x-keyless-sync-signature already contains publicKey, no need for separate header
           [KEYLESS_SYNC_SIGNATURE_HEADER]: signatureHeader,
         },
       });
-      if (response?.data?.data) {
-        return response.data.data;
-      }
-      return response?.data as unknown as T;
+      return response;
     } catch (error) {
       console.warn('[MockAPI] Mock server unavailable, fallback to memory.', {
         url,
@@ -69,10 +49,10 @@ class KeylessCloudSyncMockApi {
     client: AxiosInstance;
     signatureHeader: string;
     postData: ICloudSyncUploadPostData;
-  }): Promise<ICloudSyncUploadResult | undefined> {
+  }): Promise<AxiosResponse<IApiClientResponse<ICloudSyncUploadResult>, any>> {
     return this.postToMockServer<ICloudSyncUploadResult>({
       client: params.client,
-      url: '/prime/v1/sync/upload-keyless',
+      url: '/prime/v1/sync/upload',
       signatureHeader: params.signatureHeader,
       postData: params.postData,
     });
@@ -82,16 +62,12 @@ class KeylessCloudSyncMockApi {
     client: AxiosInstance;
     signatureHeader: string;
     postData: ICloudSyncCheckServerStatusPostData;
-  }): Promise<{
-    result: ICloudSyncCheckServerStatusResult;
-    serverTime: string;
-  }> {
-    return this.postToMockServer<{
-      result: ICloudSyncCheckServerStatusResult;
-      serverTime: string;
-    }>({
+  }): Promise<
+    AxiosResponse<IApiClientResponse<ICloudSyncCheckServerStatusResult>, any>
+  > {
+    return this.postToMockServer<ICloudSyncCheckServerStatusResult>({
       client: params.client,
-      url: '/prime/v1/sync/check-keyless',
+      url: '/prime/v1/sync/check',
       signatureHeader: params.signatureHeader,
       postData: params.postData,
     });
@@ -101,11 +77,13 @@ class KeylessCloudSyncMockApi {
     client: AxiosInstance;
     signatureHeader?: string;
     postData: ICloudSyncDownloadPostData;
-  }): Promise<ICloudSyncDownloadResult> {
+  }): Promise<
+    AxiosResponse<IApiClientResponse<ICloudSyncDownloadResult>, any>
+  > {
     if (params.signatureHeader) {
       return this.postToMockServer<ICloudSyncDownloadResult>({
         client: params.client,
-        url: '/prime/v1/sync/download-keyless',
+        url: '/prime/v1/sync/download',
         signatureHeader: params.signatureHeader,
         postData: params.postData,
       });
@@ -120,7 +98,7 @@ class KeylessCloudSyncMockApi {
   }): Promise<void> {
     await this.postToMockServer<{ cleared: boolean }>({
       client: params.client,
-      url: '/prime/v1/sync/clear-keyless',
+      url: '/prime/v1/sync/clear',
       signatureHeader: params.signatureHeader,
       postData: {},
     });
