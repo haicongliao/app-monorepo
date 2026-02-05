@@ -123,7 +123,7 @@ function EnableOneKeyCloudSwitchListItem() {
   const { user } = useOneKeyAuth();
   const isPrimeUser = user?.primeSubscription?.isActive && user?.onekeyUserId;
 
-  return (
+  const onekeyIdSwitchItem = (
     <ListItem
       title={intl.formatMessage({
         id: ETranslations.global_onekey_cloud,
@@ -177,7 +177,7 @@ function EnableOneKeyCloudSwitchListItem() {
                   serverDiffItems,
                   encryptedSecurityPasswordR1ForServer,
                 } =
-                  await backgroundApiProxy.servicePrimeCloudSync.enableCloudSync();
+                  await backgroundApiProxy.servicePrimeCloudSync.prepareCloudSync();
                 await backgroundApiProxy.servicePrimeCloudSync.setCloudSyncEnabled(
                   success,
                 );
@@ -266,6 +266,75 @@ function EnableOneKeyCloudSwitchListItem() {
         value={config.isCloudSyncEnabled}
       />
     </ListItem>
+  );
+  const keylessSwitchItem = (
+    <ListItem
+      title={`${intl.formatMessage({
+        id: ETranslations.global_onekey_cloud,
+      })} (Keyless)`}
+      icon="CloudOutline"
+      subtitle={`${intl.formatMessage({
+        id: ETranslations.prime_last_update,
+      })} : ${lastUpdateTime}`}
+    >
+      <Switch
+        disabled={false}
+        size={ESwitchSize.small}
+        onChange={async (value) => {
+          if (isSubmittingRef.current) {
+            return;
+          }
+          try {
+            isSubmittingRef.current = true;
+            if (value) {
+              const { success } =
+                await backgroundApiProxy.servicePrimeCloudSync.prepareCloudSyncKeyless();
+              await backgroundApiProxy.servicePrimeCloudSync.setCloudSyncEnabledKeyless(
+                success,
+              );
+              if (success) {
+                await timerUtils.wait(0);
+                await backgroundApiProxy.serviceApp.showDialogLoading({
+                  title: intl.formatMessage({
+                    id: ETranslations.global_syncing,
+                  }),
+                });
+                try {
+                  await backgroundApiProxy.servicePrimeCloudSync.startServerSyncFlow(
+                    {
+                      setUndefinedTimeToNow: true,
+                      callerName: 'Enable Keyless Cloud Sync',
+                    },
+                  );
+                } finally {
+                  await timerUtils.wait(1000);
+                  await backgroundApiProxy.serviceApp.hideDialogLoading();
+                }
+              }
+            } else {
+              await backgroundApiProxy.servicePrimeCloudSync.setCloudSyncEnabledKeyless(
+                false,
+              );
+            }
+          } catch (error) {
+            await backgroundApiProxy.servicePrimeCloudSync.setCloudSyncEnabledKeyless(
+              false,
+            );
+            throw error;
+          } finally {
+            isSubmittingRef.current = false;
+            void backgroundApiProxy.servicePrime.apiFetchPrimeUserInfo();
+          }
+        }}
+        value={!!config.isCloudSyncEnabledKeyless}
+      />
+    </ListItem>
+  );
+  return (
+    <>
+      {keylessSwitchItem}
+      {onekeyIdSwitchItem}
+    </>
   );
 }
 

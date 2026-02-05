@@ -229,6 +229,21 @@ export function CloudSyncApiTests() {
           </Button>
 
           <Button
+            onPressLoadingEnabled
+            onPress={() =>
+              handleApiCall(async () => {
+                await backgroundApiProxy.servicePassword.promptPasswordVerify();
+                await backgroundApiProxy.servicePrimeCloudSync.resetServerData({
+                  skipPrimeStatusCheck: true,
+                });
+              }, 'resetServerData (flush)')
+            }
+            variant="secondary"
+          >
+            Flush Server Data
+          </Button>
+
+          <Button
             onPress={() => {
               navigation.pushModal(EModalRoutes.PrimeModal, {
                 screen: EPrimePages.PrimeCloudSyncDebug,

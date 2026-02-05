@@ -14,8 +14,6 @@ import type {
 
 import type { AxiosInstance, AxiosResponse } from 'axios';
 
-const ENV_KEYLESS_SYNC_MOCK_SERVER_URL = 'KEYLESS_CLOUD_SYNC_MOCK_SERVER_URL';
-
 class KeylessCloudSyncMockApi {
   private async postToMockServer<T>({
     client,
@@ -47,12 +45,13 @@ class KeylessCloudSyncMockApi {
 
   async upload(params: {
     client: AxiosInstance;
+    urlPath: string;
     signatureHeader: string;
     postData: ICloudSyncUploadPostData;
   }): Promise<AxiosResponse<IApiClientResponse<ICloudSyncUploadResult>, any>> {
     return this.postToMockServer<ICloudSyncUploadResult>({
       client: params.client,
-      url: '/prime/v1/sync/upload',
+      url: params.urlPath,
       signatureHeader: params.signatureHeader,
       postData: params.postData,
     });

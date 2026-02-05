@@ -159,30 +159,23 @@ class ServicePrimeCloudSync extends ServiceBase {
   }
 
   /**
-   * Get active sync mode based on configuration and wallet state
+   * Get active sync mode based on cloud sync switches
    *
    * Rules:
-   * 1. If OneKey Cloud sync is enabled → primary mode is OneKey ID (pwdHash = masterPasswordUUID)
-   * 2. Else if Keyless wallet exists → primary mode is Keyless (pwdHash = keyless-{hash})
-   * 3. Else → no cloud sync, local storage only
-   *
-   * @returns Active sync mode
+   * 1. If OneKey Cloud sync switch is enabled → OneKey ID mode
+   * 2. Else if Keyless cloud sync switch is enabled → Keyless mode
+   * 3. Else → no cloud sync
    */
   @backgroundMethod()
   async getActiveSyncMode(): Promise<ECloudSyncMode> {
-    // Check OneKey Cloud sync switch
-    const primeCloudSyncConfig = await primeCloudSyncPersistAtom.get();
-    if (primeCloudSyncConfig.isCloudSyncEnabled) {
+    const { isCloudSyncEnabled, isCloudSyncEnabledKeyless } =
+      await primeCloudSyncPersistAtom.get();
+    if (isCloudSyncEnabled) {
       return ECloudSyncMode.OnekeyId;
     }
-
-    // Check Keyless wallet existence
-    const keylessWallet = await this.getKeylessWallet();
-    if (keylessWallet) {
+    if (isCloudSyncEnabledKeyless) {
       return ECloudSyncMode.Keyless;
     }
-
-    // No cloud sync
     return ECloudSyncMode.None;
   }
 
@@ -194,6 +187,7 @@ class ServicePrimeCloudSync extends ServiceBase {
     publicKey: string;
     signatureHeader: string;
     pwdHash: string | undefined;
+    fullPostData: T & { pwdHash: string | undefined };
   } | null> {
     const password =
       await this.backgroundApi.servicePassword.getCachedPassword();
@@ -207,19 +201,21 @@ class ServicePrimeCloudSync extends ServiceBase {
       return null;
     }
     const pwdHash = syncCredential.keylessCredential?.pwdHash;
+    const fullPostData = { ...postData, pwdHash };
+    const dataString = stringUtils.stableStringify(fullPostData);
+    const dataHash = keylessCloudSyncUtils.computeDataHash(dataString);
     const signatureHeader =
       await keylessCloudSyncUtils.buildKeylessSignatureHeader({
         signingPrivateKey: keylessCredential.signingPrivateKey,
         signingPublicKey: keylessCredential.signingPublicKey,
         password,
-        dataHash: keylessCloudSyncUtils.computeDataHash(
-          stringUtils.stableStringify({ ...postData, pwdHash }),
-        ),
+        dataHash,
       });
     return {
       publicKey: keylessCredential.signingPublicKey,
       signatureHeader,
       pwdHash,
+      fullPostData,
     };
   }
 
@@ -237,14 +233,15 @@ class ServicePrimeCloudSync extends ServiceBase {
 
     const client = await this.backgroundApi.servicePrime.getPrimeClient();
 
-    return keylessMockApi.checkStatus({
+    const response = await keylessMockApi.checkStatus({
       client,
       signatureHeader: auth.signatureHeader,
-      postData: {
-        ...postData,
-        pwdHash: auth.pwdHash,
-      },
+      postData: auth.fullPostData,
     });
+    return {
+      response,
+      pwdHash: auth.pwdHash,
+    };
   }
 
   async apiDownloadItemsKeyless({
@@ -264,15 +261,17 @@ class ServicePrimeCloudSync extends ServiceBase {
     const response = await keylessMockApi.download({
       client,
       signatureHeader: auth?.signatureHeader,
-      postData,
+      postData: auth.fullPostData,
     });
     return response.data.data;
   }
 
   async apiUploadItemsKeyless({
     postData,
+    urlPath,
   }: {
     postData: ICloudSyncUploadPostData;
+    urlPath: string;
   }) {
     const auth = await this.getKeylessSyncAuth({
       postData,
@@ -286,7 +285,8 @@ class ServicePrimeCloudSync extends ServiceBase {
     const response = await keylessMockApi.upload({
       client,
       signatureHeader: auth.signatureHeader,
-      postData,
+      postData: auth.fullPostData,
+      urlPath,
     });
     return response.data.data;
   }
@@ -657,12 +657,15 @@ class ServicePrimeCloudSync extends ServiceBase {
           any
         >
       | undefined;
+    let pwdHash: string | undefined;
     let masterPasswordUUID: string | undefined;
 
     if ((await this.getActiveSyncMode()) === ECloudSyncMode.Keyless) {
-      response = await this.apiCheckServerStatusKeyless({
+      const checkResult = await this.apiCheckServerStatusKeyless({
         postData,
       });
+      response = checkResult.response;
+      pwdHash = checkResult.pwdHash;
     } else {
       const client = await this.backgroundApi.servicePrime.getPrimeClient();
       ({ masterPasswordUUID } = await primeMasterPasswordPersistAtom.get());
@@ -731,7 +734,8 @@ class ServicePrimeCloudSync extends ServiceBase {
       }
     }
 
-    responseData.pwdHash = responseData.pwdHash || masterPasswordUUID || '';
+    responseData.pwdHash =
+      responseData.pwdHash || pwdHash || masterPasswordUUID || '';
     console.log('prime cloud sync apiCheck: ', responseData);
     return responseData;
   }
@@ -788,12 +792,17 @@ class ServicePrimeCloudSync extends ServiceBase {
     encryptedSecurityPasswordR1ForServer?: string;
     noDebounceUpload?: boolean;
   }) {
+    const devSettings = await devSettingsPersistAtom.get();
     const activeMode = await this.getActiveSyncMode();
     if (!skipPrimeStatusCheck) {
       await this.ensureCloudSyncIsAvailable();
     }
     // NOTE: Lock/Reset/Flush endpoints are OneKey ID only; Keyless mode never calls them.
-    if (activeMode === ECloudSyncMode.Keyless && (isReset || isFlush)) {
+    if (
+      activeMode === ECloudSyncMode.Keyless &&
+      (isReset || isFlush) &&
+      !devSettings?.enabled
+    ) {
       return undefined;
     }
 
@@ -815,7 +824,7 @@ class ServicePrimeCloudSync extends ServiceBase {
         syncCredential?.keylessCredential?.pwdHash ||
         syncCredential?.masterPasswordUUID ||
         '';
-      if (isFlush) {
+      if (isFlush && !syncCredential?.keylessCredential) {
         const syncCredentialForLock = syncCredential
           ? this.syncManagers.lock.getLockStaticSyncCredential(syncCredential)
           : undefined;
@@ -943,15 +952,17 @@ class ServicePrimeCloudSync extends ServiceBase {
     };
 
     let uploadResult: ICloudSyncUploadResult | undefined;
+    const urlPath = isFlush ? '/prime/v1/sync/flush' : '/prime/v1/sync/upload';
     if ((await this.getActiveSyncMode()) === ECloudSyncMode.Keyless) {
       uploadResult = await this.apiUploadItemsKeyless({
         postData,
+        urlPath,
       });
     } else {
       const client = await this.backgroundApi.servicePrime.getPrimeClient();
       const result = await client.post<
         IApiClientResponse<ICloudSyncUploadResult>
-      >(isFlush ? '/prime/v1/sync/flush' : '/prime/v1/sync/upload', {
+      >(urlPath, {
         ...postData,
       });
       console.log('prime cloud sync apiUploadItems: ', result?.data?.data);
@@ -1695,6 +1706,17 @@ class ServicePrimeCloudSync extends ServiceBase {
     ttlAutopurge: true,
   });
 
+  buildSyncCredentialWithKeylessCredential(
+    keylessCredential: IKeylessCloudSyncCredential,
+  ): ICloudSyncCredential {
+    return {
+      primeAccountSalt: '',
+      securityPasswordR1: '',
+      masterPasswordUUID: '',
+      keylessCredential,
+    };
+  }
+
   // TODO remove cache when logout, lock, change password/passcode, etc.
   getSyncCredentialWithCache = memoizee(
     async (): Promise<ICloudSyncCredential> => {
@@ -1714,12 +1736,7 @@ class ServicePrimeCloudSync extends ServiceBase {
         if (!keylessCredential) {
           throw new OneKeyError('Failed to get keyless credential');
         }
-        return {
-          primeAccountSalt: '',
-          securityPasswordR1: '',
-          masterPasswordUUID: '',
-          keylessCredential,
-        };
+        return this.buildSyncCredentialWithKeylessCredential(keylessCredential);
       }
 
       const {
@@ -1763,8 +1780,9 @@ class ServicePrimeCloudSync extends ServiceBase {
     },
   );
 
-  clearCachedSyncCredential() {
-    return this.getSyncCredentialWithCache.clear();
+  async clearCachedSyncCredential() {
+    await this.getSyncCredentialWithCache.clear();
+    this.keylessCloudSyncCredentialCache.clear();
   }
 
   @backgroundMethod()
@@ -1784,7 +1802,45 @@ class ServicePrimeCloudSync extends ServiceBase {
     await primeCloudSyncPersistAtom.set((v) => ({
       ...v,
       isCloudSyncEnabled: enabled,
+      isCloudSyncEnabledKeyless: enabled ? false : v.isCloudSyncEnabledKeyless,
     }));
+    await this.clearCachedSyncCredential();
+  }
+
+  @backgroundMethod()
+  async setCloudSyncEnabledKeyless(enabled: boolean): Promise<boolean> {
+    if (enabled) {
+      const keylessWallet = await this.getKeylessWallet();
+      if (!keylessWallet) {
+        await primeCloudSyncPersistAtom.set((v) => ({
+          ...v,
+          isCloudSyncEnabledKeyless: false,
+        }));
+        await this.backgroundApi.serviceApp.showToast({
+          method: 'error',
+          title: appLocale.intl.formatMessage({
+            id: ETranslations.global_no_wallet,
+          }),
+          message: appLocale.intl.formatMessage({
+            id: ETranslations.create_keyless_wallet,
+          }),
+        });
+        return false;
+      }
+
+      const { isCloudSyncEnabled } = await primeCloudSyncPersistAtom.get();
+      if (isCloudSyncEnabled) {
+        await this.setCloudSyncEnabled(false);
+      }
+    }
+
+    await primeCloudSyncPersistAtom.set((v) => ({
+      ...v,
+      isCloudSyncEnabled: enabled ? false : v.isCloudSyncEnabled,
+      isCloudSyncEnabledKeyless: enabled,
+    }));
+    await this.clearCachedSyncCredential();
+    return enabled;
   }
 
   @backgroundMethod()
@@ -2176,7 +2232,62 @@ class ServicePrimeCloudSync extends ServiceBase {
 
   @backgroundMethod()
   @toastIfError()
-  async enableCloudSync(): Promise<{
+  async prepareCloudSyncKeyless(): Promise<{
+    success: boolean;
+  }> {
+    if (systemTimeUtils.systemTimeStatus === ELocalSystemTimeStatus.INVALID) {
+      throw new OneKeyError(
+        appLocale.intl.formatMessage({
+          id: ETranslations.prime_time_error_description,
+        }),
+      );
+    }
+
+    const keylessWallet = await this.getKeylessWallet();
+    if (!keylessWallet) {
+      await this.backgroundApi.serviceApp.showToast({
+        method: 'error',
+        title: appLocale.intl.formatMessage({
+          id: ETranslations.global_no_wallet,
+        }),
+        message: appLocale.intl.formatMessage({
+          id: ETranslations.create_keyless_wallet,
+        }),
+      });
+      return { success: false };
+    }
+
+    const { password } =
+      await this.backgroundApi.servicePassword.promptPasswordVerify();
+
+    const keylessCredential = await this.getKeylessCloudSyncCredential();
+    if (!keylessCredential) {
+      throw new OneKeyError('Failed to get keyless credential');
+    }
+
+    await this.withDialogLoading(
+      {
+        title: appLocale.intl.formatMessage({
+          id: ETranslations.global_processing,
+        }),
+      },
+      async () => {
+        const syncCredential =
+          this.buildSyncCredentialWithKeylessCredential(keylessCredential);
+        await this.initLocalSyncItemsDB({
+          password,
+          syncCredential,
+        });
+        await timerUtils.wait(1000);
+      },
+    );
+
+    return { success: true };
+  }
+
+  @backgroundMethod()
+  @toastIfError()
+  async prepareCloudSync(): Promise<{
     success: boolean;
     isServerMasterPasswordSet?: boolean;
     encryptedSecurityPasswordR1ForServer?: string;
