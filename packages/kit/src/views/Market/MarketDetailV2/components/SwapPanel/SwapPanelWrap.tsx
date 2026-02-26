@@ -261,7 +261,6 @@ export function SwapPanelWrap({ onCloseDialog }: ISwapPanelWrapProps) {
 
   // Initialize paymentToken: prefer saved preference, fallback to first default
   useEffect(() => {
-    const effectiveNetworkId = networkId || '';
     if (filterDefaultTokens.length > 0 && !paymentToken?.networkId) {
       const preferred = savedPreference
         ? filterDefaultTokens.find(
@@ -293,7 +292,6 @@ export function SwapPanelWrap({ onCloseDialog }: ISwapPanelWrapProps) {
       setPaymentToken(preferred || filterDefaultTokens[0]);
     }
   }, [
-    networkId,
     paymentToken?.networkId,
     paymentToken?.contractAddress,
     setPaymentToken,
